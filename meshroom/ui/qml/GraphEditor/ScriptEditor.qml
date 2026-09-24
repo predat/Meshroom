@@ -90,23 +90,30 @@ Item {
 
     // Whether completions are being displayed or requested for the text under the cursor
     property bool completionActive: false
+    // Whether the signature of the call under the cursor is being displayed or requested
+    property bool signatureActive: false
 
-    function updateCompletion() {
+    function updateAssistance() {
         /**
-         * Requests the completions at the text cursor, or stops the completion
-         * if the cursor is not right after an identifier or a dot
+         * Requests the completions and/or the signature at the text cursor, depending on which ones are active.
+         * The completion stops if the cursor is not right after an identifier or a dot.
          */
-        if (!/[\w.]/.test(input.text.charAt(input.cursorPosition - 1))) {
+        if (completionActive && !/[\w.]/.test(input.text.charAt(input.cursorPosition - 1)))
             closeCompletion()
-            return
-        }
-        ScriptEditorManager.completer.requestCompletions(input.text, input.cursorPosition)
+        if (completionActive || signatureActive)
+            ScriptEditorManager.completer.request(input.text, input.cursorPosition, completionActive, signatureActive)
     }
 
     function closeCompletion() {
         completionActive = false
         completionPopup.close()
         ScriptEditorManager.completer.clearCompletions()
+    }
+
+    function closeSignature() {
+        signatureActive = false
+        signaturePopup.close()
+        ScriptEditorManager.completer.clearSignatures()
     }
 
     function loadScript(fileUrl) {
@@ -356,10 +363,13 @@ Item {
                             if (!ScriptEditorManager.completer.available)
                                 return
 
-                            // Ctrl+Space: complete
-                            if (event.key === Qt.Key_Space && event.modifiers === Qt.ControlModifier) {
-                                root.completionActive = true
-                                root.updateCompletion()
+                            // Ctrl+Space: complete, Ctrl+Shift+Space: show the signature of the call
+                            if (event.key === Qt.Key_Space && (event.modifiers & Qt.ControlModifier)) {
+                                if (event.modifiers & Qt.ShiftModifier)
+                                    root.signatureActive = true
+                                else
+                                    root.completionActive = true
+                                root.updateAssistance()
                                 event.accepted = true
                                 return
                             }
@@ -391,27 +401,35 @@ Item {
                                     return
                                 }
                             }
-                            if (event.key === Qt.Key_Escape && root.completionActive) {
-                                root.closeCompletion()
+                            // Escape closes the completions first, then the signature
+                            if (event.key === Qt.Key_Escape && (root.completionActive || root.signatureActive)) {
+                                if (root.completionActive)
+                                    root.closeCompletion()
+                                else
+                                    root.closeSignature()
                                 event.accepted = true
                                 return
                             }
 
-                            // Automatic trigger: completions after a dot
+                            // Automatic triggers: completions after a dot, signature when opening a call or after a comma
                             if (event.text === ".")
                                 root.completionActive = true
+                            else if (event.text === "(" || event.text === ",")
+                                root.signatureActive = true
 
                             if (event.text !== "" || event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
                                 // Update once the typed character has been inserted
-                                if (root.completionActive)
-                                    Qt.callLater(root.updateCompletion)
+                                if (root.completionActive || root.signatureActive)
+                                    Qt.callLater(root.updateAssistance)
                             }
                             else if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down, Qt.Key_Home, Qt.Key_End,
                                       Qt.Key_PageUp, Qt.Key_PageDown].includes(event.key)) {
-                                // Moving the cursor ends the completion
+                                // Moving the cursor ends the completion, and may leave the call
                                 // (modifier keys alone, such as Shift to type an upper case letter, are ignored)
                                 if (root.completionActive)
                                     root.closeCompletion()
+                                if (root.signatureActive)
+                                    Qt.callLater(root.updateAssistance)
                             }
                         }
 
@@ -433,9 +451,31 @@ Item {
                                 input.insert(input.cursorPosition, completion.name)
                                 root.closeCompletion()
                                 input.forceActiveFocus()
+                                // The inserted text may change the parameter being typed
+                                if (root.signatureActive)
+                                    root.updateAssistance()
                             }
                             // Closed by a click outside of the popup
                             onClosed: root.completionActive = false
+                        }
+
+                        ScriptSignaturePopup {
+                            id: signaturePopup
+                            completer: ScriptEditorManager.completer
+                            x: input.cursorRectangle.x
+                            // On the other side of the cursor than the completions, so that it does not hide them
+                            y: {
+                                const above = input.cursorRectangle.y - height
+                                const below = input.cursorRectangle.y + input.cursorRectangle.height
+                                if (!completionPopup.aboveCursor ? input.mapToItem(null, 0, above).y >= 0
+                                                                 : input.mapToItem(null, 0, below).y + height > input.Window.height)
+                                    return above
+                                return below
+                            }
+                            font: input.font
+
+                            // Closed by a click outside of the popup
+                            onClosed: root.signatureActive = false
                         }
 
                         Connections {
@@ -445,6 +485,17 @@ Item {
                                     completionPopup.open()
                                 else
                                     completionPopup.close()
+                            }
+                            function onSignaturesChanged() {
+                                if (!root.signatureActive)
+                                    return
+                                // No signature: the cursor is not in a call anymore
+                                if (ScriptEditorManager.completer.signatures.length > 0) {
+                                    signaturePopup.open()
+                                } else {
+                                    root.signatureActive = false
+                                    signaturePopup.close()
+                                }
                             }
                         }
                     }

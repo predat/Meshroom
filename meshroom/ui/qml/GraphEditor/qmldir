@@ -16,3 +16,4 @@ TaskManager 1.0 TaskManager.qml
 ScriptEditor 1.0 ScriptEditor.qml
 NodeFileBrowser 1.0 NodeFileBrowser.qml
 ScriptCompletionPopup 1.0 ScriptCompletionPopup.qml
+ScriptSignaturePopup 1.0 ScriptSignaturePopup.qml

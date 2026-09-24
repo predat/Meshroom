@@ -97,3 +97,30 @@ def test_truncatedDocstring(manager):
     assert waitForSignal(manager.completer.docstringChanged)
     assert len(manager.completer.docstring) < 3100
     assert manager.completer.docstring.endswith("[...]")
+
+def test_signatures(manager):
+    manager.process("def myFunction(first, second: int = 2):\n    '''Do <something>.'''")
+    script = "myFunction(1, "
+    manager.completer.request(script, len(script), False, True)
+    assert waitForSignal(manager.completer.signaturesChanged)
+    signatures = manager.completer.signatures
+    assert len(signatures) == 1
+    # The parameter being typed is in bold, and the text is escaped for rich text
+    assert signatures[0]["label"] == "myFunction(first, <b>second: int=2</b>)"
+    assert signatures[0]["docstring"] == "Do <something>."
+
+
+def test_signaturesOutsideOfCall(manager):
+    script = "myFunction(1, 2)"
+    manager.completer.request(script, len(script), False, True)
+    assert waitForSignal(manager.completer.signaturesChanged)
+    assert manager.completer.signatures == []
+
+
+def test_completionsAndSignatures(manager):
+    # Completing an argument of a call: both are provided by the same request
+    script = "myFunction(g.addN"
+    manager.completer.request(script, len(script), True, True)
+    assert waitForCompletions(manager.completer) == ["addNewNode", "addNode"]
+    assert manager.completer.signatures[0]["label"].startswith("myFunction(<b>first</b>")
+

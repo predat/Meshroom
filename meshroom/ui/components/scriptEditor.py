@@ -2,6 +2,7 @@
 """
 # STD
 import ast
+import html
 import logging
 import traceback
 from contextlib import redirect_stdout
@@ -20,7 +21,7 @@ except ImportError:
 
 class PyCompleter(QObject):
     """
-    Provides Python completions and their docstrings for the script editor, using jedi.
+    Provides Python completions, docstrings and call signatures for the script editor, using jedi.
 
     Everything is computed on a worker thread, as a jedi request can take a few seconds.
     Only the latest request is processed: a request that becomes outdated while waiting
@@ -40,11 +41,13 @@ class PyCompleter(QObject):
         super().__init__(parent=parent)
         self._namespaceGetter = namespaceGetter
         self._completions = []
+        self._signatures = []
         self._docstring = ""
         self._requestId = 0
-        # Id of the last request issued when the completions were cleared:
+        # Id of the last request issued when the completions or the signatures were cleared:
         # the results of the requests issued before are discarded
         self._completionsClearId = 0
+        self._signaturesClearId = 0
         # Id of the request that produced the current completions, and index of the docstring displayed
         self._completionsRequestId = 0
         self._docstringIndex = -1
@@ -66,13 +69,21 @@ class PyCompleter(QObject):
             return text[:cls._MAX_DOCSTRING_LENGTH] + "\n[...]"
         return text
 
+    @staticmethod
+    def _formatSignature(signature):
+        """ Returns the signature as rich text, with the parameter being typed in bold. """
+        params = [html.escape(param.to_string()) for param in signature.params]
+        if signature.index is not None and 0 <= signature.index < len(params):
+            params[signature.index] = f"<b>{params[signature.index]}</b>"
+        return f"{html.escape(signature.name)}({', '.join(params)})"
+
     def _run(self):
         """ Worker loop: process the latest request, then the latest docstring request, and send the results back. """
         while True:
             with self._condition:
                 while self._pendingRequest is None and self._pendingDocstringRequest is None:
                     self._condition.wait()
-                # Completions have priority over the docstring of the selected completion
+                # Completions and signatures have priority over the docstring of the selected completion
                 if self._pendingRequest is not None:
                     request, self._pendingRequest = self._pendingRequest, None
                     docstringRequest = None
@@ -88,18 +99,25 @@ class PyCompleter(QObject):
                 # Invalid code or jedi internal error: there is simply nothing to show
                 logging.debug("ScriptEditor: completion failed", exc_info=True)
 
-    def _processRequest(self, requestId, positions, namespace):
+    def _processRequest(self, requestId, positions, namespace, withCompletions, withSignatures):
         completions = []
+        signatures = []
         for script, line, column in positions:
             # Give up the remaining positions (of a warm-up) as soon as a new request is waiting
             if self._pendingRequest is not None:
                 return
-            jediCompletions = jedi.Interpreter(script, [namespace]).complete(line, column)
-            self._workerCompletions = (requestId, jediCompletions)
-            # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
-            completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
-                           for c in jediCompletions]
-        self._resultsReady.emit(requestId, completions)
+            interpreter = jedi.Interpreter(script, [namespace])
+            if withCompletions:
+                jediCompletions = interpreter.complete(line, column)
+                self._workerCompletions = (requestId, jediCompletions)
+                # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
+                completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
+                               for c in jediCompletions]
+            if withSignatures:
+                signatures = [{"label": self._formatSignature(sig), "docstring": self._truncate(sig.docstring(raw=True))}
+                              for sig in interpreter.get_signatures(line, column)]
+        self._resultsReady.emit(requestId, {"completions": completions if withCompletions else None,
+                                            "signatures": signatures if withSignatures else None})
 
     def _processDocstringRequest(self, requestId, index):
         completionsRequestId, jediCompletions = self._workerCompletions
@@ -108,14 +126,19 @@ class PyCompleter(QObject):
         self._docstringReady.emit(requestId, index, self._truncate(jediCompletions[index].docstring()))
 
     @Slot(int, object)
-    def _onResultsReady(self, requestId, completions):
-        # Discard the results of a request that has been superseded or cleared since
-        if requestId != self._requestId or requestId <= self._completionsClearId:
+    def _onResultsReady(self, requestId, results):
+        # Discard the results of a request that has been superseded since
+        if requestId != self._requestId:
             return
-        self._completionsRequestId = requestId
-        self._completions = completions
-        self._setDocstring(-1, "")
-        self.completionsChanged.emit()
+        # Also discard the completions or the signatures cleared since the request was issued
+        if results["completions"] is not None and requestId > self._completionsClearId:
+            self._completionsRequestId = requestId
+            self._completions = results["completions"]
+            self._setDocstring(-1, "")
+            self.completionsChanged.emit()
+        if results["signatures"] is not None and requestId > self._signaturesClearId:
+            self._signatures = results["signatures"]
+            self.signaturesChanged.emit()
 
     @Slot(int, int, str)
     def _onDocstringReady(self, requestId, index, docstring):
@@ -129,13 +152,15 @@ class PyCompleter(QObject):
             self._docstring = docstring
             self.docstringChanged.emit()
 
-    def _submit(self, requestId, positions):
+    def _submit(self, requestId, positions, withCompletions=True, withSignatures=False):
         """
         Hand a request over to the worker thread, replacing any request not started yet.
 
         Args:
             requestId (int): the id of the request, compared to the current one when its results are ready.
             positions (list): the (script, cursorPosition) pairs to process; the results are the ones of the last pair.
+            withCompletions (bool): whether to compute the completions.
+            withSignatures (bool): whether to compute the signatures of the call being typed.
         """
         if not self.available or not positions:
             return
@@ -153,21 +178,28 @@ class PyCompleter(QObject):
 
         with self._condition:
             # Copy the namespace so that the worker is not affected by a script executed meanwhile
-            self._pendingRequest = (requestId, jediPositions, dict(self._namespaceGetter()))
+            self._pendingRequest = (requestId, jediPositions, dict(self._namespaceGetter()), withCompletions, withSignatures)
             self._condition.notify()
 
-    @Slot(str, int)
-    def requestCompletions(self, script, cursorPosition):
+    @Slot(str, int, bool, bool)
+    def request(self, script, cursorPosition, completions, signatures):
         """
-        Asynchronously compute the completions at the given position of the script.
-        The "completions" property is updated once they are available.
+        Asynchronously compute the completions and/or the signatures at the given position of the script.
+        The "completions" and "signatures" properties are updated once they are available.
 
         Args:
             script (str): the whole script.
             cursorPosition (int): the position of the text cursor in the script.
+            completions (bool): whether to compute the completions.
+            signatures (bool): whether to compute the signatures of the call being typed.
         """
         self._requestId += 1
-        self._submit(self._requestId, [(script, cursorPosition)])
+        self._submit(self._requestId, [(script, cursorPosition)], completions, signatures)
+
+    @Slot(str, int)
+    def requestCompletions(self, script, cursorPosition):
+        """ Asynchronously compute the completions at the given position of the script. """
+        self.request(script, cursorPosition, True, False)
 
     @Slot(int)
     def requestDocstring(self, index):
@@ -225,13 +257,25 @@ class PyCompleter(QObject):
             self._completions = []
             self.completionsChanged.emit()
 
+    @Slot()
+    def clearSignatures(self):
+        """ Clear the signatures and discard the signatures of any pending request. """
+        self._signaturesClearId = self._requestId
+        if self._signatures:
+            self._signatures = []
+            self.signaturesChanged.emit()
+
     _resultsReady = Signal(int, object)
     _docstringReady = Signal(int, int, str)
     completionsChanged = Signal()
+    signaturesChanged = Signal()
     docstringChanged = Signal()
     # List of {"name", "prefixLength", "type"} dicts, "prefixLength" being the length of the text before the cursor
     # that the name replaces
     completions = Property("QVariantList", lambda self: self._completions, notify=completionsChanged)
+    # List of {"label", "docstring"} dicts for the call being typed, "label" being rich text
+    # with the current parameter in bold
+    signatures = Property("QVariantList", lambda self: self._signatures, notify=signaturesChanged)
     # Docstring of the completion requested with requestDocstring
     docstring = Property(str, lambda self: self._docstring, notify=docstringChanged)
     available = Property(bool, lambda self: jedi is not None, constant=True)
