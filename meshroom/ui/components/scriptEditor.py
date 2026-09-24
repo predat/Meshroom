@@ -1,13 +1,133 @@
 """ Script Editor for Meshroom.
 """
 # STD
-from io import StringIO
-from contextlib import redirect_stdout
+import logging
 import traceback
+from contextlib import redirect_stdout
+from io import StringIO
+from threading import Condition, Thread
 
 # Qt
 from PySide6 import QtCore, QtGui
-from PySide6.QtCore import Property, QObject, Slot, Signal, QSettings
+from PySide6.QtCore import Property, QObject, QSettings, Signal, Slot
+
+try:
+    import jedi
+except ImportError:
+    jedi = None
+
+
+class PyCompleter(QObject):
+    """
+    Provides Python completions for the script editor, using jedi.
+
+    Completions are computed on a worker thread, as a jedi request can take a few seconds.
+    Only the latest request is processed: a request that becomes outdated while waiting
+    for the worker is skipped, and the results of an outdated request are discarded.
+    """
+
+    def __init__(self, namespaceGetter, parent=None):
+        """
+        Args:
+            namespaceGetter (callable): returns the dict of live objects the scripts are executed with,
+                                        used by jedi to complete names that cannot be inferred statically.
+            parent (QObject): the parent object.
+        """
+        super().__init__(parent=parent)
+        self._namespaceGetter = namespaceGetter
+        self._completions = []
+        self._requestId = 0
+        # Id of the last request issued when the completions were cleared:
+        # the results of the requests issued before are discarded
+        self._completionsClearId = 0
+
+        self._condition = Condition()
+        self._pendingRequest = None
+        self._thread = None
+
+        self._resultsReady.connect(self._onResultsReady, QtCore.Qt.QueuedConnection)
+
+    def _run(self):
+        """ Worker loop: process the latest request and send the results back. """
+        while True:
+            with self._condition:
+                while self._pendingRequest is None:
+                    self._condition.wait()
+                request, self._pendingRequest = self._pendingRequest, None
+
+            try:
+                self._processRequest(*request)
+            except Exception:
+                # Invalid code or jedi internal error: there is simply nothing to show
+                logging.debug("ScriptEditor: completion failed", exc_info=True)
+
+    def _processRequest(self, requestId, script, line, column, namespace):
+        jediCompletions = jedi.Interpreter(script, [namespace]).complete(line, column)
+        # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
+        completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
+                       for c in jediCompletions]
+        self._resultsReady.emit(requestId, completions)
+
+    @Slot(int, object)
+    def _onResultsReady(self, requestId, completions):
+        # Discard the results of a request that has been superseded or cleared since
+        if requestId != self._requestId or requestId <= self._completionsClearId:
+            return
+        self._completions = completions
+        self.completionsChanged.emit()
+
+    def _submit(self, requestId, script, cursorPosition):
+        """
+        Hand a request over to the worker thread, replacing any request not started yet.
+
+        Args:
+            requestId (int): the id of the request, compared to the current one when its results are ready.
+            script (str): the whole script.
+            cursorPosition (int): the position of the text cursor in the script.
+        """
+        if not self.available:
+            return
+        if self._thread is None:
+            self._thread = Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+        # jedi expects a 1-based line and a 0-based column
+        before = script[:cursorPosition]
+        line = before.count("\n") + 1
+        column = len(before) - (before.rfind("\n") + 1)
+
+        with self._condition:
+            # Copy the namespace so that the worker is not affected by a script executed meanwhile
+            self._pendingRequest = (requestId, script, line, column, dict(self._namespaceGetter()))
+            self._condition.notify()
+
+    @Slot(str, int)
+    def requestCompletions(self, script, cursorPosition):
+        """
+        Asynchronously compute the completions at the given position of the script.
+        The "completions" property is updated once they are available.
+
+        Args:
+            script (str): the whole script.
+            cursorPosition (int): the position of the text cursor in the script.
+        """
+        self._requestId += 1
+        self._submit(self._requestId, script, cursorPosition)
+
+    @Slot()
+    def clearCompletions(self):
+        """ Clear the completions and discard the completions of any pending request. """
+        self._completionsClearId = self._requestId
+        if self._completions:
+            self._completions = []
+            self.completionsChanged.emit()
+
+    _resultsReady = Signal(int, object)
+    completionsChanged = Signal()
+    # List of {"name", "prefixLength", "type"} dicts, "prefixLength" being the length of the text before the cursor
+    # that the name replaces
+    completions = Property("QVariantList", lambda self: self._completions, notify=completionsChanged)
+    available = Property(bool, lambda self: jedi is not None, constant=True)
 
 
 class ScriptEditorManager(QObject):
@@ -23,6 +143,10 @@ class ScriptEditorManager(QObject):
 
         self._globals = {}
         self._locals = {}
+
+        self._completer = PyCompleter(self._completionNamespace, parent=self)
+        if jedi is None:
+            logging.info("ScriptEditor: jedi is not available, code completion is disabled.")
 
     # Protected
     def _defaultScript(self):
@@ -41,6 +165,20 @@ class ScriptEditorManager(QObject):
         settings = QSettings()
         settings.beginGroup(self._GROUP)
         return settings.value(self._KEY)
+
+    def _completionNamespace(self):
+        """ Returns the live objects available to the scripts, for the completion. """
+        # Import within the method to prevent cyclic dependencies
+        from meshroom import ui
+        # uiInstance is only set at runtime by meshroom.ui.__main__: provide the live instance,
+        # as jedi cannot infer it from the "from meshroom.ui import uiInstance" statement of the default script
+        namespace = {}
+        uiInstance = getattr(ui, "uiInstance", None)
+        if uiInstance is not None:
+            namespace["uiInstance"] = uiInstance
+        namespace.update(self._globals)
+        namespace.update(self._locals)
+        return namespace
 
     def _hasPreviousScript(self):
         """ Returns whether there is a previous script available.
@@ -140,6 +278,7 @@ class ScriptEditorManager(QObject):
 
     hasPreviousScript = Property(bool, _hasPreviousScript, notify=scriptIndexChanged)
     hasNextScript = Property(bool, _hasNextScript, notify=scriptIndexChanged)
+    completer = Property(QObject, lambda self: self._completer, constant=True)
 
 
 class CharFormat(QtGui.QTextCharFormat):
