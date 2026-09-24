@@ -84,6 +84,8 @@ Item {
 
         // Save the entire script after executing the commands
         ScriptEditorManager.saveScript(input.text)
+        // The execution may have defined new names to complete
+        ScriptEditorManager.completer.warmUp(input.text)
     }
 
     // Whether completions are being displayed or requested for the text under the cursor
@@ -123,6 +125,12 @@ Item {
 
     implicitWidth: 500
     implicitHeight: 500
+
+    // Parse the script modules in the background, so that the first completion is not delayed
+    onVisibleChanged: {
+        if (visible)
+            ScriptEditorManager.completer.warmUp(input.text)
+    }
 
     Platform.FileDialog {
         id: loadScriptDialog

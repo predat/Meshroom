@@ -1,6 +1,7 @@
 """ Script Editor for Meshroom.
 """
 # STD
+import ast
 import logging
 import traceback
 from contextlib import redirect_stdout
@@ -61,11 +62,16 @@ class PyCompleter(QObject):
                 # Invalid code or jedi internal error: there is simply nothing to show
                 logging.debug("ScriptEditor: completion failed", exc_info=True)
 
-    def _processRequest(self, requestId, script, line, column, namespace):
-        jediCompletions = jedi.Interpreter(script, [namespace]).complete(line, column)
-        # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
-        completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
-                       for c in jediCompletions]
+    def _processRequest(self, requestId, positions, namespace):
+        completions = []
+        for script, line, column in positions:
+            # Give up the remaining positions (of a warm-up) as soon as a new request is waiting
+            if self._pendingRequest is not None:
+                return
+            jediCompletions = jedi.Interpreter(script, [namespace]).complete(line, column)
+            # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
+            completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
+                           for c in jediCompletions]
         self._resultsReady.emit(requestId, completions)
 
     @Slot(int, object)
@@ -76,29 +82,31 @@ class PyCompleter(QObject):
         self._completions = completions
         self.completionsChanged.emit()
 
-    def _submit(self, requestId, script, cursorPosition):
+    def _submit(self, requestId, positions):
         """
         Hand a request over to the worker thread, replacing any request not started yet.
 
         Args:
             requestId (int): the id of the request, compared to the current one when its results are ready.
-            script (str): the whole script.
-            cursorPosition (int): the position of the text cursor in the script.
+            positions (list): the (script, cursorPosition) pairs to process; the results are the ones of the last pair.
         """
-        if not self.available:
+        if not self.available or not positions:
             return
         if self._thread is None:
             self._thread = Thread(target=self._run, daemon=True)
             self._thread.start()
 
-        # jedi expects a 1-based line and a 0-based column
-        before = script[:cursorPosition]
-        line = before.count("\n") + 1
-        column = len(before) - (before.rfind("\n") + 1)
+        jediPositions = []
+        for script, cursorPosition in positions:
+            # jedi expects a 1-based line and a 0-based column
+            before = script[:cursorPosition]
+            line = before.count("\n") + 1
+            column = len(before) - (before.rfind("\n") + 1)
+            jediPositions.append((script, line, column))
 
         with self._condition:
             # Copy the namespace so that the worker is not affected by a script executed meanwhile
-            self._pendingRequest = (requestId, script, line, column, dict(self._namespaceGetter()))
+            self._pendingRequest = (requestId, jediPositions, dict(self._namespaceGetter()))
             self._condition.notify()
 
     @Slot(str, int)
@@ -112,7 +120,37 @@ class PyCompleter(QObject):
             cursorPosition (int): the position of the text cursor in the script.
         """
         self._requestId += 1
-        self._submit(self._requestId, script, cursorPosition)
+        self._submit(self._requestId, [(script, cursorPosition)])
+
+    @Slot(str)
+    def warmUp(self, script):
+        """
+        Complete the attributes of the top-level names of the script in the background, discarding the results.
+        The first completion on an object can take a few seconds, as jedi parses the modules it comes from:
+        warming up makes the completions on the script variables immediate afterwards.
+        A completion request interrupts the warm-up.
+
+        Args:
+            script (str): the script to warm up the completion with.
+        """
+        try:
+            tree = ast.parse(script)
+        except SyntaxError:
+            return
+        names = []
+        for node in ast.walk(tree):
+            # Assigned variables, loop variables, imported names and so on
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.append(node.id)
+            elif isinstance(node, ast.alias):
+                names.append((node.asname or node.name).split(".")[0])
+        # Complete "<name>." on a new line at the end of the script, for each name
+        positions = []
+        for name in dict.fromkeys(names):
+            warmUpScript = f"{script}\n{name}."
+            positions.append((warmUpScript, len(warmUpScript)))
+        # A negative request id is never the current one: the results are discarded
+        self._submit(-1, positions)
 
     @Slot()
     def clearCompletions(self):
