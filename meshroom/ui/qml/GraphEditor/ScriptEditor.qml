@@ -86,6 +86,27 @@ Item {
         ScriptEditorManager.saveScript(input.text)
     }
 
+    // Whether completions are being displayed or requested for the text under the cursor
+    property bool completionActive: false
+
+    function updateCompletion() {
+        /**
+         * Requests the completions at the text cursor, or stops the completion
+         * if the cursor is not right after an identifier or a dot
+         */
+        if (!/[\w.]/.test(input.text.charAt(input.cursorPosition - 1))) {
+            closeCompletion()
+            return
+        }
+        ScriptEditorManager.completer.requestCompletions(input.text, input.cursorPosition)
+    }
+
+    function closeCompletion() {
+        completionActive = false
+        completionPopup.close()
+        ScriptEditorManager.completer.clearCompletions()
+    }
+
     function loadScript(fileUrl) {
         var request = new XMLHttpRequest()
         request.open("GET", fileUrl, false)
@@ -322,6 +343,103 @@ Item {
                         Keys.onPressed: function(event) {
                             if ((event.key === Qt.Key_Enter || event.key === Qt.Key_Return) && event.modifiers === Qt.ControlModifier) {
                                 root.processScript(input.selectedText)
+                                return
+                            }
+                            if (!ScriptEditorManager.completer.available)
+                                return
+
+                            // Ctrl+Space: complete
+                            if (event.key === Qt.Key_Space && event.modifiers === Qt.ControlModifier) {
+                                root.completionActive = true
+                                root.updateCompletion()
+                                event.accepted = true
+                                return
+                            }
+
+                            // Navigate in and accept the completions while they are displayed
+                            if (completionPopup.visible) {
+                                switch (event.key) {
+                                case Qt.Key_Up:
+                                    completionPopup.moveSelection(-1)
+                                    event.accepted = true
+                                    return
+                                case Qt.Key_Down:
+                                    completionPopup.moveSelection(1)
+                                    event.accepted = true
+                                    return
+                                case Qt.Key_PageUp:
+                                    completionPopup.moveSelection(-10)
+                                    event.accepted = true
+                                    return
+                                case Qt.Key_PageDown:
+                                    completionPopup.moveSelection(10)
+                                    event.accepted = true
+                                    return
+                                case Qt.Key_Tab:
+                                case Qt.Key_Enter:
+                                case Qt.Key_Return:
+                                    completionPopup.acceptCurrent()
+                                    event.accepted = true
+                                    return
+                                }
+                            }
+                            if (event.key === Qt.Key_Escape && root.completionActive) {
+                                root.closeCompletion()
+                                event.accepted = true
+                                return
+                            }
+
+                            // Automatic trigger: completions after a dot
+                            if (event.text === ".")
+                                root.completionActive = true
+
+                            if (event.text !== "" || event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+                                // Update once the typed character has been inserted
+                                if (root.completionActive)
+                                    Qt.callLater(root.updateCompletion)
+                            }
+                            else if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down, Qt.Key_Home, Qt.Key_End,
+                                      Qt.Key_PageUp, Qt.Key_PageDown].includes(event.key)) {
+                                // Moving the cursor ends the completion
+                                // (modifier keys alone, such as Shift to type an upper case letter, are ignored)
+                                if (root.completionActive)
+                                    root.closeCompletion()
+                            }
+                        }
+
+                        ScriptCompletionPopup {
+                            id: completionPopup
+                            completer: ScriptEditorManager.completer
+                            x: input.cursorRectangle.x
+                            // Below the cursor, or above it when there is not enough room in the window.
+                            // The side is chosen from the maximum height, so that the popup does not jump
+                            // from one side to the other when the number of completions changes.
+                            y: {
+                                const below = input.cursorRectangle.y + input.cursorRectangle.height
+                                if (input.mapToItem(null, 0, below).y + maximumHeight <= input.Window.height)
+                                    return below
+                                return input.cursorRectangle.y - height
+                            }
+                            font: input.font
+
+                            onCompletionSelected: function(completion) {
+                                // Replace the typed prefix, which may differ in case, with the completed name
+                                input.remove(input.cursorPosition - completion.prefixLength, input.cursorPosition)
+                                input.insert(input.cursorPosition, completion.name)
+                                root.closeCompletion()
+                                input.forceActiveFocus()
+                            }
+                            // Closed by a click outside of the popup
+                            onClosed: root.completionActive = false
+                        }
+
+                        Connections {
+                            target: ScriptEditorManager.completer
+                            function onCompletionsChanged() {
+                                if (root.completionActive && ScriptEditorManager.completer.completions.length > 0)
+                                    completionPopup.open()
+                                else
+                                    completionPopup.close()
                             }
                         }
                     }
