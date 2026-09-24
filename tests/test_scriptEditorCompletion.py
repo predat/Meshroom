@@ -73,3 +73,27 @@ def test_clearDiscardsPendingRequest(manager):
     # The results of the cancelled request must not show up
     assert waitForCompletions(manager.completer, timeout=3000) == []
 
+
+def test_docstring(manager):
+    script = "g.addNewN"
+    manager.completer.requestCompletions(script, len(script))
+    assert waitForCompletions(manager.completer) == ["addNewNode"]
+    manager.completer.requestDocstring(0)
+    assert waitForSignal(manager.completer.docstringChanged)
+    assert "Create and add a new node to the graph." in manager.completer.docstring
+    # New completions reset the docstring
+    script = "g.addE"
+    manager.completer.requestCompletions(script, len(script))
+    waitForCompletions(manager.completer)
+    assert manager.completer.docstring == ""
+
+
+def test_truncatedDocstring(manager):
+    manager.process(f"def longDoc():\n    '''{'a' * 5000}'''")
+    script = "longDo"
+    manager.completer.requestCompletions(script, len(script))
+    assert waitForCompletions(manager.completer) == ["longDoc"]
+    manager.completer.requestDocstring(0)
+    assert waitForSignal(manager.completer.docstringChanged)
+    assert len(manager.completer.docstring) < 3100
+    assert manager.completer.docstring.endswith("[...]")

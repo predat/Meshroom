@@ -20,12 +20,15 @@ except ImportError:
 
 class PyCompleter(QObject):
     """
-    Provides Python completions for the script editor, using jedi.
+    Provides Python completions and their docstrings for the script editor, using jedi.
 
-    Completions are computed on a worker thread, as a jedi request can take a few seconds.
+    Everything is computed on a worker thread, as a jedi request can take a few seconds.
     Only the latest request is processed: a request that becomes outdated while waiting
     for the worker is skipped, and the results of an outdated request are discarded.
     """
+
+    # Docstrings can be huge (numpy's are up to tens of thousands of characters)
+    _MAX_DOCSTRING_LENGTH = 3000
 
     def __init__(self, namespaceGetter, parent=None):
         """
@@ -37,27 +40,50 @@ class PyCompleter(QObject):
         super().__init__(parent=parent)
         self._namespaceGetter = namespaceGetter
         self._completions = []
+        self._docstring = ""
         self._requestId = 0
         # Id of the last request issued when the completions were cleared:
         # the results of the requests issued before are discarded
         self._completionsClearId = 0
+        # Id of the request that produced the current completions, and index of the docstring displayed
+        self._completionsRequestId = 0
+        self._docstringIndex = -1
 
         self._condition = Condition()
         self._pendingRequest = None
+        self._pendingDocstringRequest = None
         self._thread = None
+        # Worker side only: (requestId, jedi completions) of the last request computing completions,
+        # used to get the docstrings on demand
+        self._workerCompletions = (0, [])
 
         self._resultsReady.connect(self._onResultsReady, QtCore.Qt.QueuedConnection)
+        self._docstringReady.connect(self._onDocstringReady, QtCore.Qt.QueuedConnection)
+
+    @classmethod
+    def _truncate(cls, text):
+        if len(text) > cls._MAX_DOCSTRING_LENGTH:
+            return text[:cls._MAX_DOCSTRING_LENGTH] + "\n[...]"
+        return text
 
     def _run(self):
-        """ Worker loop: process the latest request and send the results back. """
+        """ Worker loop: process the latest request, then the latest docstring request, and send the results back. """
         while True:
             with self._condition:
-                while self._pendingRequest is None:
+                while self._pendingRequest is None and self._pendingDocstringRequest is None:
                     self._condition.wait()
-                request, self._pendingRequest = self._pendingRequest, None
+                # Completions have priority over the docstring of the selected completion
+                if self._pendingRequest is not None:
+                    request, self._pendingRequest = self._pendingRequest, None
+                    docstringRequest = None
+                else:
+                    docstringRequest, self._pendingDocstringRequest = self._pendingDocstringRequest, None
 
             try:
-                self._processRequest(*request)
+                if docstringRequest is not None:
+                    self._processDocstringRequest(*docstringRequest)
+                else:
+                    self._processRequest(*request)
             except Exception:
                 # Invalid code or jedi internal error: there is simply nothing to show
                 logging.debug("ScriptEditor: completion failed", exc_info=True)
@@ -69,18 +95,39 @@ class PyCompleter(QObject):
             if self._pendingRequest is not None:
                 return
             jediCompletions = jedi.Interpreter(script, [namespace]).complete(line, column)
+            self._workerCompletions = (requestId, jediCompletions)
             # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
             completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
                            for c in jediCompletions]
         self._resultsReady.emit(requestId, completions)
+
+    def _processDocstringRequest(self, requestId, index):
+        completionsRequestId, jediCompletions = self._workerCompletions
+        if completionsRequestId != requestId or not 0 <= index < len(jediCompletions):
+            return
+        self._docstringReady.emit(requestId, index, self._truncate(jediCompletions[index].docstring()))
 
     @Slot(int, object)
     def _onResultsReady(self, requestId, completions):
         # Discard the results of a request that has been superseded or cleared since
         if requestId != self._requestId or requestId <= self._completionsClearId:
             return
+        self._completionsRequestId = requestId
         self._completions = completions
+        self._setDocstring(-1, "")
         self.completionsChanged.emit()
+
+    @Slot(int, int, str)
+    def _onDocstringReady(self, requestId, index, docstring):
+        # Discard the docstring if the completions or the selected one have changed since
+        if requestId == self._completionsRequestId and index == self._docstringIndex:
+            self._setDocstring(index, docstring)
+
+    def _setDocstring(self, index, docstring):
+        self._docstringIndex = index
+        if docstring != self._docstring:
+            self._docstring = docstring
+            self.docstringChanged.emit()
 
     def _submit(self, requestId, positions):
         """
@@ -122,6 +169,23 @@ class PyCompleter(QObject):
         self._requestId += 1
         self._submit(self._requestId, [(script, cursorPosition)])
 
+    @Slot(int)
+    def requestDocstring(self, index):
+        """
+        Asynchronously get the docstring of a completion.
+        The "docstring" property is updated once it is available.
+
+        Args:
+            index (int): the index of the completion in the "completions" list.
+        """
+        if not 0 <= index < len(self._completions):
+            self._setDocstring(-1, "")
+            return
+        self._docstringIndex = index
+        with self._condition:
+            self._pendingDocstringRequest = (self._completionsRequestId, index)
+            self._condition.notify()
+
     @Slot(str)
     def warmUp(self, script):
         """
@@ -156,15 +220,20 @@ class PyCompleter(QObject):
     def clearCompletions(self):
         """ Clear the completions and discard the completions of any pending request. """
         self._completionsClearId = self._requestId
+        self._setDocstring(-1, "")
         if self._completions:
             self._completions = []
             self.completionsChanged.emit()
 
     _resultsReady = Signal(int, object)
+    _docstringReady = Signal(int, int, str)
     completionsChanged = Signal()
+    docstringChanged = Signal()
     # List of {"name", "prefixLength", "type"} dicts, "prefixLength" being the length of the text before the cursor
     # that the name replaces
     completions = Property("QVariantList", lambda self: self._completions, notify=completionsChanged)
+    # Docstring of the completion requested with requestDocstring
+    docstring = Property(str, lambda self: self._docstring, notify=docstringChanged)
     available = Property(bool, lambda self: jedi is not None, constant=True)
 
 

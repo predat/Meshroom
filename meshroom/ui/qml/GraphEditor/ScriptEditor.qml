@@ -421,13 +421,10 @@ Item {
                             x: input.cursorRectangle.x
                             // Below the cursor, or above it when there is not enough room in the window.
                             // The side is chosen from the maximum height, so that the popup does not jump
-                            // from one side to the other when the number of completions changes.
-                            y: {
-                                const below = input.cursorRectangle.y + input.cursorRectangle.height
-                                if (input.mapToItem(null, 0, below).y + maximumHeight <= input.Window.height)
-                                    return below
-                                return input.cursorRectangle.y - height
-                            }
+                            // from one side to the other when the selected docstring changes.
+                            aboveCursor: input.mapToItem(null, 0, input.cursorRectangle.y + input.cursorRectangle.height).y
+                                         + maximumHeight > input.Window.height
+                            y: aboveCursor ? input.cursorRectangle.y - height : input.cursorRectangle.y + input.cursorRectangle.height
                             font: input.font
 
                             onCompletionSelected: function(completion) {
