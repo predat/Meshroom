@@ -1,17 +1,16 @@
 """ Script Editor for Meshroom.
 """
 # STD
-import ast
+from io import StringIO
+from contextlib import redirect_stdout
+import traceback
 import html
 import logging
-import traceback
-from contextlib import redirect_stdout
-from io import StringIO
 from threading import Condition, Thread
 
 # Qt
 from PySide6 import QtCore, QtGui
-from PySide6.QtCore import Property, QObject, QSettings, Signal, Slot
+from PySide6.QtCore import Property, QObject, Slot, Signal, QSettings
 
 try:
     import jedi
@@ -99,25 +98,20 @@ class PyCompleter(QObject):
                 # Invalid code or jedi internal error: there is simply nothing to show
                 logging.debug("ScriptEditor: completion failed", exc_info=True)
 
-    def _processRequest(self, requestId, positions, namespace, withCompletions, withSignatures):
-        completions = []
-        signatures = []
-        for script, line, column in positions:
-            # Give up the remaining positions (of a warm-up) as soon as a new request is waiting
-            if self._pendingRequest is not None:
-                return
-            interpreter = jedi.Interpreter(script, [namespace])
-            if withCompletions:
-                jediCompletions = interpreter.complete(line, column)
-                self._workerCompletions = (requestId, jediCompletions)
-                # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
-                completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
-                               for c in jediCompletions]
-            if withSignatures:
-                signatures = [{"label": self._formatSignature(sig), "docstring": self._truncate(sig.docstring(raw=True))}
-                              for sig in interpreter.get_signatures(line, column)]
-        self._resultsReady.emit(requestId, {"completions": completions if withCompletions else None,
-                                            "signatures": signatures if withSignatures else None})
+    def _processRequest(self, requestId, script, line, column, namespace, withCompletions, withSignatures):
+        interpreter = jedi.Interpreter(script, [namespace])
+        completions = None
+        signatures = None
+        if withCompletions:
+            jediCompletions = interpreter.complete(line, column)
+            self._workerCompletions = (requestId, jediCompletions)
+            # jedi matches case-insensitively: the typed prefix is replaced by the name when inserting a completion
+            completions = [{"name": c.name, "prefixLength": len(c.name) - len(c.complete), "type": c.type}
+                           for c in jediCompletions]
+        if withSignatures:
+            signatures = [{"label": self._formatSignature(sig), "docstring": self._truncate(sig.docstring(raw=True))}
+                          for sig in interpreter.get_signatures(line, column)]
+        self._resultsReady.emit(requestId, {"completions": completions, "signatures": signatures})
 
     def _processDocstringRequest(self, requestId, index):
         completionsRequestId, jediCompletions = self._workerCompletions
@@ -152,35 +146,6 @@ class PyCompleter(QObject):
             self._docstring = docstring
             self.docstringChanged.emit()
 
-    def _submit(self, requestId, positions, withCompletions=True, withSignatures=False):
-        """
-        Hand a request over to the worker thread, replacing any request not started yet.
-
-        Args:
-            requestId (int): the id of the request, compared to the current one when its results are ready.
-            positions (list): the (script, cursorPosition) pairs to process; the results are the ones of the last pair.
-            withCompletions (bool): whether to compute the completions.
-            withSignatures (bool): whether to compute the signatures of the call being typed.
-        """
-        if not self.available or not positions:
-            return
-        if self._thread is None:
-            self._thread = Thread(target=self._run, daemon=True)
-            self._thread.start()
-
-        jediPositions = []
-        for script, cursorPosition in positions:
-            # jedi expects a 1-based line and a 0-based column
-            before = script[:cursorPosition]
-            line = before.count("\n") + 1
-            column = len(before) - (before.rfind("\n") + 1)
-            jediPositions.append((script, line, column))
-
-        with self._condition:
-            # Copy the namespace so that the worker is not affected by a script executed meanwhile
-            self._pendingRequest = (requestId, jediPositions, dict(self._namespaceGetter()), withCompletions, withSignatures)
-            self._condition.notify()
-
     @Slot(str, int, bool, bool)
     def request(self, script, cursorPosition, completions, signatures):
         """
@@ -193,13 +158,20 @@ class PyCompleter(QObject):
             completions (bool): whether to compute the completions.
             signatures (bool): whether to compute the signatures of the call being typed.
         """
+        if not self.available:
+            return
+        if self._thread is None:
+            self._thread = Thread(target=self._run, daemon=True)
+            self._thread.start()
         self._requestId += 1
-        self._submit(self._requestId, [(script, cursorPosition)], completions, signatures)
-
-    @Slot(str, int)
-    def requestCompletions(self, script, cursorPosition):
-        """ Asynchronously compute the completions at the given position of the script. """
-        self.request(script, cursorPosition, True, False)
+        # jedi expects a 1-based line and a 0-based column
+        before = script[:cursorPosition]
+        line = before.count("\n") + 1
+        column = len(before) - (before.rfind("\n") + 1)
+        with self._condition:
+            # Copy the namespace so that the worker is not affected by a script executed meanwhile
+            self._pendingRequest = (self._requestId, script, line, column, dict(self._namespaceGetter()), completions, signatures)
+            self._condition.notify()
 
     @Slot(int)
     def requestDocstring(self, index):
@@ -217,36 +189,6 @@ class PyCompleter(QObject):
         with self._condition:
             self._pendingDocstringRequest = (self._completionsRequestId, index)
             self._condition.notify()
-
-    @Slot(str)
-    def warmUp(self, script):
-        """
-        Complete the attributes of the top-level names of the script in the background, discarding the results.
-        The first completion on an object can take a few seconds, as jedi parses the modules it comes from:
-        warming up makes the completions on the script variables immediate afterwards.
-        A completion request interrupts the warm-up.
-
-        Args:
-            script (str): the script to warm up the completion with.
-        """
-        try:
-            tree = ast.parse(script)
-        except SyntaxError:
-            return
-        names = []
-        for node in ast.walk(tree):
-            # Assigned variables, loop variables, imported names and so on
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                names.append(node.id)
-            elif isinstance(node, ast.alias):
-                names.append((node.asname or node.name).split(".")[0])
-        # Complete "<name>." on a new line at the end of the script, for each name
-        positions = []
-        for name in dict.fromkeys(names):
-            warmUpScript = f"{script}\n{name}."
-            positions.append((warmUpScript, len(warmUpScript)))
-        # A negative request id is never the current one: the results are discarded
-        self._submit(-1, positions)
 
     @Slot()
     def clearCompletions(self):

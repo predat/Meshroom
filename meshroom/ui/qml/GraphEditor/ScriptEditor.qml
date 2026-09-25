@@ -84,8 +84,6 @@ Item {
 
         // Save the entire script after executing the commands
         ScriptEditorManager.saveScript(input.text)
-        // The execution may have defined new names to complete
-        ScriptEditorManager.completer.warmUp(input.text)
     }
 
     // Whether completions are being displayed or requested for the text under the cursor
@@ -132,12 +130,6 @@ Item {
 
     implicitWidth: 500
     implicitHeight: 500
-
-    // Parse the script modules in the background, so that the first completion is not delayed
-    onVisibleChanged: {
-        if (visible)
-            ScriptEditorManager.completer.warmUp(input.text)
-    }
 
     Platform.FileDialog {
         id: loadScriptDialog
@@ -378,19 +370,8 @@ Item {
                             if (completionPopup.visible) {
                                 switch (event.key) {
                                 case Qt.Key_Up:
-                                    completionPopup.moveSelection(-1)
-                                    event.accepted = true
-                                    return
                                 case Qt.Key_Down:
-                                    completionPopup.moveSelection(1)
-                                    event.accepted = true
-                                    return
-                                case Qt.Key_PageUp:
-                                    completionPopup.moveSelection(-10)
-                                    event.accepted = true
-                                    return
-                                case Qt.Key_PageDown:
-                                    completionPopup.moveSelection(10)
+                                    completionPopup.moveSelection(event.key === Qt.Key_Up ? -1 : 1)
                                     event.accepted = true
                                     return
                                 case Qt.Key_Tab:

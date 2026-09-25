@@ -34,13 +34,13 @@ def waitForCompletions(completer, timeout=10000):
 def test_completeLiveNamespace(manager):
     manager.process("from meshroom.core.graph import Graph\ng = Graph('test')")
     script = "g.addN"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     assert waitForCompletions(manager.completer) == ["addNewNode", "addNode"]
 
 
 def test_completeMultiline(manager):
     script = "for i in range(3):\n    i.bit_l"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     names = waitForCompletions(manager.completer)
     assert names == ["bit_length"]
     assert manager.completer.completions[0]["prefixLength"] == len("bit_l")
@@ -49,7 +49,7 @@ def test_completeMultiline(manager):
 def test_completeCaseInsensitive(manager):
     # The whole typed prefix is replaced, to fix its case
     script = "g.addnewn"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     assert waitForCompletions(manager.completer) == ["addNewNode"]
     assert manager.completer.completions[0]["prefixLength"] == len("addnewn")
 
@@ -57,18 +57,18 @@ def test_completeCaseInsensitive(manager):
 def test_completeAtCursorPosition(manager):
     # Only the text before the cursor is completed
     script = "import os\nos.pa\nprint('end')"
-    manager.completer.requestCompletions(script, script.index("\nprint"))
+    manager.completer.request(script, script.index("\nprint"), True, False)
     assert "path" in waitForCompletions(manager.completer)
 
 
 def test_latestRequestWins(manager):
     for script in ("g.a", "g.ad", "g.addE"):
-        manager.completer.requestCompletions(script, len(script))
+        manager.completer.request(script, len(script), True, False)
     assert waitForCompletions(manager.completer) == ["addEdge"]
 
 
 def test_clearDiscardsPendingRequest(manager):
-    manager.completer.requestCompletions("g.addN", len("g.addN"))
+    manager.completer.request("g.addN", len("g.addN"), True, False)
     manager.completer.clearCompletions()
     # The results of the cancelled request must not show up
     assert waitForCompletions(manager.completer, timeout=3000) == []
@@ -76,14 +76,14 @@ def test_clearDiscardsPendingRequest(manager):
 
 def test_docstring(manager):
     script = "g.addNewN"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     assert waitForCompletions(manager.completer) == ["addNewNode"]
     manager.completer.requestDocstring(0)
     assert waitForSignal(manager.completer.docstringChanged)
     assert "Create and add a new node to the graph." in manager.completer.docstring
     # New completions reset the docstring
     script = "g.addE"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     waitForCompletions(manager.completer)
     assert manager.completer.docstring == ""
 
@@ -91,7 +91,7 @@ def test_docstring(manager):
 def test_truncatedDocstring(manager):
     manager.process(f"def longDoc():\n    '''{'a' * 5000}'''")
     script = "longDo"
-    manager.completer.requestCompletions(script, len(script))
+    manager.completer.request(script, len(script), True, False)
     assert waitForCompletions(manager.completer) == ["longDoc"]
     manager.completer.requestDocstring(0)
     assert waitForSignal(manager.completer.docstringChanged)
