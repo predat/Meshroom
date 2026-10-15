@@ -41,6 +41,81 @@ from meshroom.ui import commands
 from meshroom.ui.utils import makeProperty
 
 
+def connectionError(srcAttr: Attribute, srcConnector: str, dstAttr: Attribute, dstConnector: str) -> str:
+    """
+    Check whether an edge being dragged from a pin can be dropped on another pin.
+    Shared by the pins' drop areas and the connection guide, so that both always agree.
+
+    Args:
+        srcAttr: the attribute of the pin the edge is dragged from.
+        srcConnector: the side of that pin ("input" or "output").
+        dstAttr: the attribute of the pin the edge is dropped on.
+        dstConnector: the side of that pin ("input" or "output").
+
+    Returns:
+        An empty string if the connection is valid, the reason of the refusal otherwise.
+    """
+    if srcConnector == dstConnector:
+        return "same direction"
+    if srcAttr.node is dstAttr.node:
+        return "same node"
+    if dstConnector == "input" and (dstAttr.node.locked or dstAttr.isReadOnly):
+        return "locked"
+    # Mirrors the historical checks: the dropped-on attribute validates the dragged one, in both directions
+    if not dstAttr.validateIncomingConnection(srcAttr):
+        return "incompatible type"
+    srcIsList = isinstance(srcAttr, ListAttribute)
+    dstIsList = isinstance(dstAttr, ListAttribute)
+    if dstConnector == "output" and dstIsList and not srcIsList:
+        return "incompatible type"
+    if srcIsList and dstIsList and not dstAttr.isLink and len(dstAttr.value) > 0:
+        return "list already filled"
+    return ""
+
+
+def _attributesWithPins(node: Node) -> Iterator[Attribute]:
+    """ Yield the attributes of 'node' that can be displayed as pins (group children included, list elements excluded). """
+    for attribute in node.attributes:
+        if not attribute.desc.visible:
+            continue
+        yield attribute
+        yield from attribute.flatStaticChildren if not isinstance(attribute, ListAttribute) else ()
+    for attribute in node.internalAttributes:
+        if attribute.type == "Flow":
+            yield attribute
+
+
+def connectionTargets(graph: Graph, srcAttr: Attribute, srcConnector: str) -> dict:
+    """
+    Compute, once per edge drag, the pins an edge dragged from 'srcAttr' can be dropped on.
+
+    Args:
+        graph: the graph containing the attributes.
+        srcAttr: the attribute of the pin the edge is dragged from.
+        srcConnector: the side of that pin ("input" or "output").
+
+    Returns:
+        A dict with the uuids of the compatible attributes ("attributes") and the names of
+        the nodes containing at least one of them ("nodes").
+    """
+    dstConnector = "output" if srcConnector == "input" else "input"
+    attributes, nodes = [], []
+    for node in graph.nodes:
+        if isinstance(node, BackdropNode):
+            continue
+        for attribute in _attributesWithPins(node):
+            # Inputs have an input pin and, except Flow ones, an output pin for input-to-input edges
+            if dstConnector == "input":
+                hasConnector = not attribute.isOutput
+            else:
+                hasConnector = attribute.isOutput or attribute.type != "Flow"
+            if hasConnector and not connectionError(srcAttr, srcConnector, attribute, dstConnector):
+                attributes.append(attribute.uuid)
+                if not nodes or nodes[-1] != node.name:
+                    nodes.append(node.name)
+    return {"attributes": attributes, "nodes": nodes}
+
+
 class PollerRefreshStatus(Enum):
     AUTO_ENABLED = 0  # The file watcher polls every single status file periodically
     DISABLED = 1  # The file watcher is disabled and never polls any file
@@ -1319,6 +1394,14 @@ class UIGraph(QObject):
                 self._addEdge(src, dst.at(-1))
         else:
             self._addEdge(src, dst)
+
+    @Slot(Attribute, str, Attribute, str, result=str)
+    def connectionError(self, src, srcConnector, dst, dstConnector):
+        return connectionError(src, srcConnector, dst, dstConnector)
+
+    @Slot(Attribute, str, result="QVariant")
+    def connectionTargets(self, src, srcConnector):
+        return connectionTargets(self._graph, src, srcConnector)
 
     def _addEdge(self, src, dst):
         with self.groupedGraphModification(f"Connect '{src.fullName}'->'{dst.fullName}'"):

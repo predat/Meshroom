@@ -28,6 +28,11 @@ Item {
     property string nodeLabel: node ? node.label : ""
     /// Combined x and y
     property point position: Qt.point(x, y)
+    /// Uuids of the attributes an edge being dragged can be connected to (null when no edge is dragged)
+    property var compatibleAttributeUuids: null
+    /// Vertical extent of the attribute pins, relative to the node
+    readonly property real attributesTop: nodeAttributes.y
+    readonly property real attributesBottom: nodeAttributes.y + attributesColumn.height - attributesColumn.bottomPadding
     /// Styling
     readonly property color defaultColor: {
         if (isCompatibilityNode)
@@ -79,6 +84,9 @@ Item {
     signal attributePinCreated(var attribute, var pin)
     /// Emitted when child attribute pins are deleted
     signal attributePinDeleted(var attribute, var pin)
+    /// Relayed from the attribute pins: an edge started/stopped being dragged, the dragged edge entered/left a pin
+    signal connectionDragChanged(var attribute, string connectorType, var dragItem)
+    signal dropTargetChanged(var attribute, string reason)
 
     // use node name as object name to simplify debugging
     objectName: node ? node.name : ""
@@ -455,6 +463,8 @@ Item {
                                 property real globalY: root.y + flowInputsLoader.y
 
                                 Component.onCompleted: attributePinCreated(attribute, flowInputsHeaderPin)
+                                onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                                onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
                                 Component.onDestruction: attributePinDeleted(attribute, flowInputsHeaderPin)
 
                                 onPressed: function(mouse) { root.pressed(mouse) }
@@ -655,6 +665,8 @@ Item {
                                 property real globalY: root.y + flowOutLoader.y
 
                                 Component.onCompleted: attributePinCreated(attribute, flowOutHeaderPin)
+                                onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                                onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
                                 Component.onDestruction: attributePinDeleted(attribute, flowOutHeaderPin)
 
                                 onPressed: function(mouse) { root.pressed(mouse) }
@@ -786,6 +798,8 @@ Item {
                                         }
 
                                         Component.onCompleted: attributePinCreated(attribute, outPin)
+                                        onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                                        onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
                                         onChildPinCreated: function(childAttribute, outPin) { attributePinCreated(childAttribute, outPin) }
                                         Component.onDestruction: attributePinDeleted(attribute, outPin)
                                         onChildPinDeleted: function(childAttribute, outPin) { attributePinDeleted(childAttribute, outPin) }
@@ -846,6 +860,8 @@ Item {
 
                                         readOnly: Boolean(root.readOnly || modelData.isReadOnly)
                                         Component.onCompleted: attributePinCreated(attribute, inPin)
+                                        onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                                        onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
                                         Component.onDestruction: attributePinDeleted(attribute, inPin)
 
                                         onPressed: function(mouse) {
@@ -957,6 +973,8 @@ Item {
 
                                             readOnly: Boolean(root.readOnly || modelData.isReadOnly)
                                             Component.onCompleted: attributePinCreated(attribute, inParamsPin)
+                                            onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                                            onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
                                             Component.onDestruction: attributePinDeleted(attribute, inParamsPin)
 
                                             onPressed: function(mouse) {
