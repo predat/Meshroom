@@ -31,19 +31,105 @@ Item {
     /// Uuids of the attributes an edge being dragged can be connected to (null when no edge is dragged)
     property var compatibleAttributeUuids: null
     /// Vertical extent of the attribute pins, relative to the node
-    readonly property real attributesTop: nodeAttributes.y
+    readonly property real attributesTop: nodeAttributes.y + attributesColumn.topPadding
     readonly property real attributesBottom: nodeAttributes.y + attributesColumn.height - attributesColumn.bottomPadding
-    /// Styling
-    readonly property color defaultColor: {
-        if (isCompatibilityNode)
-            return activePalette.mid
+    /// Vertical extent of the gap between the output and the input attributes (-1 when there is none)
+    readonly property real attributesGapTop: attributesGap.visible ? nodeAttributes.y + attributesGap.y : -1
+    readonly property real attributesGapBottom: attributesGap.visible ? attributesGapTop + attributesGap.height : -1
+
+    /// Icon tile: node type category, or IO / non-computable nodes, tinted by the user color when set
+    readonly property var categoryStyle: Colors.categoryStyle(node && _nodeTypes[node.nodeType] ? _nodeTypes[node.nodeType].category : "")
+    readonly property color tileTint: {
+        if (!node)
+            return Colors.nodeTextSecondary
         if (node.isIONode)
-            return Colors.blue
+            return Colors.tokenColor(Colors.dataTypeColors["image"])
         if (!node.isComputableType)
-            return '#2f6352'
-        return activePalette.base
+            return Colors.tokenColor(Colors.dataTypeColors["matches"])
+        return Colors.tokenColor(categoryStyle.color)
     }
-    property color baseColor: defaultColor
+
+    /// Finished chunks, total chunks and the sum of the finished chunks durations
+    readonly property var chunkStats: {
+        let done = 0
+        let elapsed = 0
+        const chunks = node && node.chunksCreated ? node.chunks : null
+        const count = chunks ? chunks.count : 0
+        for (let i = 0; i < count; ++i) {
+            const chunk = chunks.at(i)
+            if (chunk.statusName === "SUCCESS") {
+                done++
+                elapsed += chunk.elapsedTime
+            }
+        }
+        return { "done": done, "count": count, "elapsed": elapsed }
+    }
+
+    /// Status chip: { icon, text, color }, null for nodes which are not computed
+    readonly property var statusChip: {
+        if (!node || !node.isComputableType)
+            return null
+        const status = node.globalStatus
+        // Compatibility nodes cannot be computed: only show a known past status
+        if (isCompatibilityNode && status === "NONE")
+            return null
+        const colors = Colors.nodeStatusColors
+        switch (status) {
+        case "NONE": return { "icon": MaterialIcons.radio_button_unchecked, "text": "Ready", "color": colors["NONE"] }
+        case "SUBMITTED":
+            if (node.isExternal)
+                return { "icon": MaterialIcons.cloud_upload, "text": "Submitted", "color": Colors.nodeStatusFarm }
+            return { "icon": MaterialIcons.schedule, "text": "Queued", "color": colors["SUBMITTED"] }
+        case "RUNNING": {
+            const percent = chunkStats.count > 0 ? Math.round(100 * chunkStats.done / chunkStats.count) : 0
+            return { "icon": node.isExternal ? MaterialIcons.cloud : MaterialIcons.play_circle, "text": percent + " %",
+                     "color": node.isExternal ? Colors.nodeStatusFarm : colors["RUNNING"] }
+        }
+        case "SUCCESS": return { "icon": MaterialIcons.check, "text": "Done", "color": colors["SUCCESS"] }
+        case "ERROR": return { "icon": MaterialIcons.close, "text": "Error", "color": colors["ERROR"] }
+        case "STOPPED": return { "icon": MaterialIcons.stop_circle, "text": "Stopped", "color": colors["STOPPED"] }
+        case "KILLED": return { "icon": MaterialIcons.cancel, "text": "Killed", "color": colors["KILLED"] }
+        }
+        return null
+    }
+
+    /// Number of hidden parameters which differ from their default value
+    readonly property int modifiedParamsCount: {
+        let count = 0
+        for (let i = 0; node && i < node.attributes.count; ++i) {
+            const attr = node.attributes.at(i)
+            if (!attr.isOutput && !attr.exposed && attr.desc.visible && !attr.isDefault)
+                count++
+        }
+        return count
+    }
+
+    function formatDuration(seconds) {
+        /*
+         * Formats a duration in seconds as "0.4 s", "12 s", "3:41" or "1:03:41".
+         */
+        if (seconds < 10)
+            return seconds.toFixed(1) + " s"
+        if (seconds < 60)
+            return Math.round(seconds) + " s"
+        const s = Math.round(seconds)
+        const pad = (v) => (v < 10 ? "0" : "") + v
+        if (s < 3600)
+            return Math.floor(s / 60) + ":" + pad(s % 60)
+        return Math.floor(s / 3600) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60)
+    }
+
+    function statusTooltip() {
+        /*
+         * Returns the status chip tooltip: the global status, plus the remaining time while running,
+         * estimated from the mean duration of the finished chunks (omitted without finished chunks).
+         */
+        let str = node.globalStatus + (node.isExternal ? " (external)" : "")
+        const remaining = chunkStats.count - chunkStats.done
+        if (node.globalStatus === "RUNNING" && chunkStats.done > 0 && remaining > 0)
+            str += "<br>ETA ~" + formatDuration(chunkStats.elapsed / chunkStats.done * remaining)
+        return str
+    }
 
     /// Shake Relevance
     readonly property double maxAmplitude: 500.0;
@@ -347,36 +433,36 @@ Item {
             root.endShaking();
         }
 
-        // Selection border
+        // Selection halo (main selection only)
         Rectangle {
             anchors.fill: nodeContent
-            anchors.margins: -border.width
-            visible: root.mainSelected || root.hovered || root.selected
-            border.width: {
-                if(root.mainSelected)
-                    return 3
-                if(root.selected)
-                    return 2.5
-                return 2
-            }
-            border.color: {
-                if (hasWarnings === true)
-                    return Colors.warning
-                if (root.mainSelected)
-                    return activePalette.highlight
-                if (root.selected)
-                    return Qt.darker(activePalette.highlight, 1.2)
-                return Qt.lighter(activePalette.base, 3)
-            }
-            opacity: 0.9
-            radius: background.radius + border.width
+            anchors.margins: -6
+            visible: root.mainSelected
+            radius: background.radius + 6
             color: "transparent"
+            border.width: 4
+            border.color: ring.border.color
+            opacity: 0.35
+        }
+
+        // Selection ring
+        Rectangle {
+            id: ring
+            anchors.fill: nodeContent
+            anchors.margins: -2
+            visible: root.mainSelected || root.selected
+            radius: background.radius + 2
+            color: "transparent"
+            border.width: 2
+            border.color: root.hasWarnings ? Colors.nodeInvalid : Colors.nodeSelection
         }
 
         Rectangle {
             id: background
             anchors.fill: nodeContent
-            color: node.color === "" ? Qt.lighter(activePalette.base, 1.4) : node.color
+            color: Colors.nodeBackground
+            border.width: 1
+            border.color: root.hovered && !ring.visible ? Colors.nodeTextSecondary : Colors.nodeBorder
             layer.enabled: true
             layer.effect: MultiEffect {
                 shadowColor: activePalette.shadow
@@ -385,8 +471,7 @@ Item {
                 shadowEnabled: true
                 blurMax: 4  // large values could impact performances
             }
-            radius: 3
-            opacity: 0.85
+            radius: 8
         }
 
         Rectangle {
@@ -401,46 +486,27 @@ Item {
                 width: parent.width
 
                 // Header
-                Rectangle {
+                Item {
                     id: header
                     width: parent.width
-                    height: headerLayout.height
-                    color: {
-                        if (!node)
-                            return root.baseColor
+                    height: 28
 
-                        if (node.nodeVersionType === NodeVersionType.USER)
-                            return Qt.hsla(0.0,
-                                        Math.max(root.baseColor.hslSaturation, 0.5),
-                                        root.baseColor.hslLightness > 0.5 ?  // Handle light palette
-                                                root.baseColor.hslLightness * 0.75 : root.baseColor.hslLightness,
-                                        1.0)
-                        else if (node.nodeVersionType === NodeVersionType.BETA)
-                            return Qt.hsla(0.083,
-                                        Math.max(root.baseColor.hslSaturation, 0.45),
-                                        root.baseColor.hslLightness > 0.5 ?
-                                                root.baseColor.hslLightness * 0.6 :
-                                                Math.max(root.baseColor.hslLightness, 0.5),
-                                        1.0)
-
-                        return root.baseColor
-                    }
-                    radius: background.radius
-
-                    // Fill header's bottom radius
+                    // User color strip
                     Rectangle {
-                        width: parent.width
-                        height: parent.radius
-                        anchors.bottom: parent.bottom
-                        color: parent.color
-                        z: -1
+                        visible: node.color !== ""
+                        x: 0
+                        y: 4
+                        width: 3
+                        height: parent.height - 8
+                        radius: 1.5
+                        color: node.color !== "" ? node.color : "transparent"
                     }
 
                     // Header Layout
                     RowLayout {
                         id: headerLayout
-                        width: parent.width
-                        spacing: 0
+                        anchors.fill: parent
+                        spacing: 4
 
                         Loader {
                             id: flowInputsLoader
@@ -472,177 +538,91 @@ Item {
                             }
                         }
 
+                        // Category icon tile
+                        Rectangle {
+                            Layout.leftMargin: flowInputsLoader.active ? 0 : 6
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            radius: 4
+                            color: node.color !== "" ? node.color : Qt.rgba(root.tileTint.r, root.tileTint.g, root.tileTint.b, 0.22)
+
+                            MaterialLabel {
+                                anchors.centerIn: parent
+                                text: MaterialIcons[root.categoryStyle.icon]
+                                font.pointSize: 9
+                                color: node.color === "" ? root.tileTint : (Qt.color(node.color).hslLightness > 0.6 ? "#1D2027" : "#EEF0F3")
+                            }
+                        }
+
                         // Node Name
                         Label {
                             id: nodeLabel
                             Layout.fillWidth: true
                             text: root.nodeLabel
-                            padding: 4
-                            color: root.mainSelected ? activePalette.highlightedText : activePalette.text
-                            elide: Text.ElideMiddle
-                            font.pointSize: 8
+                            color: Colors.nodeText
+                            elide: Text.ElideRight
+                            font.pointSize: 10
+                            font.bold: true
+
+                            // Full name when elided
+                            MouseArea {
+                                id: nodeLabelMA
+                                anchors.fill: parent
+                                hoverEnabled: nodeLabel.truncated
+                                acceptedButtons: Qt.NoButton
+                            }
+                            ToolTip.visible: nodeLabelMA.containsMouse
+                            ToolTip.text: nodeLabel.text
+                            ToolTip.delay: 500
                         }
 
-                        // Node State icons
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignRight
-                            Layout.rightMargin: 2
-                            spacing: 2
+                        // CompatibilityBadge icon for CompatibilityNodes
+                        Loader {
+                            active: root.isCompatibilityNode
+                            visible: active
+                            sourceComponent: CompatibilityBadge {
+                                sourceComponent: iconDelegate
+                                canUpgrade: root.node.canUpgrade
+                                issueDetails: root.node.issueDetails
+                            }
+                        }
 
-                            // CompatibilityBadge icon for CompatibilityNodes
-                            Loader {
-                                active: root.isCompatibilityNode
-                                sourceComponent: CompatibilityBadge {
-                                    sourceComponent: iconDelegate
-                                    canUpgrade: root.node.canUpgrade
-                                    issueDetails: root.node.issueDetails
+                        // Status chip
+                        Rectangle {
+                            visible: root.statusChip !== null
+                            Layout.rightMargin: flowOutLoader.active ? 0 : 4
+                            Layout.preferredWidth: chipRow.implicitWidth + 8
+                            Layout.preferredHeight: 18
+                            radius: 9
+                            color: visible ? Qt.rgba(root.statusChip.color.r, root.statusChip.color.g, root.statusChip.color.b, 0.14) : "transparent"
+
+                            Row {
+                                id: chipRow
+                                anchors.centerIn: parent
+                                spacing: 3
+                                MaterialLabel {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: root.statusChip ? root.statusChip.icon : ""
+                                    font.pointSize: 8
+                                    color: root.statusChip ? root.statusChip.color : "transparent"
+                                }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: root.statusChip ? root.statusChip.text : ""
+                                    font.pointSize: 8
+                                    color: Colors.nodeText
                                 }
                             }
 
-                            // Data sharing indicator
-                            // Note: for an unknown reason, there are some performance issues with the UI refresh.
-                            // Example: a node duplicated 40 times will be slow while creating another identical node
-                            // (sharing the same uid) will not be as slow. If save, quit and reload, it will become slow.
-                            MaterialToolButton {
-                                property string baseText: "<b>Shares internal folder (data) with other node(s). Hold click for details.</b>"
-                                property string toolTipText: visible ? baseText : ""
-                                visible: node.hasDuplicates
-                                text: MaterialIcons.layers
-                                font.pointSize: 7
-                                padding: 2
-                                palette.text: Colors.sysPalette.text
-                                ToolTip.text: toolTipText
-
-                                onPressed: {
-                                    offsetReleased.running = false
-                                    toolTipText = visible ? generateDuplicateList() : ""
-                                }
-                                onReleased: {
-                                    toolTipText = ""
-                                    offsetReleased.running = true
-                                }
-                                onCanceled: released()
-
-                                // Used for a better user experience with the button
-                                // Avoid to change the text too quickly
-                                Timer {
-                                    id: offsetReleased
-                                    interval: 750
-                                    running: false
-                                    repeat: false
-                                    onTriggered: parent.toolTipText = visible ? parent.baseText : ""
-                                }
+                            MouseArea {
+                                id: statusChipMA
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
                             }
-
-                            // Attribute warnings
-                            MaterialLabel {
-                                visible: hasWarnings
-                                text: MaterialIcons.fmd_bad
-                                color: Colors.warning
-                                padding: 2
-                                font.pointSize: 7
-                                palette.text: Colors.sysPalette.text
-                                ToolTip.text: "Some attribute validations are failing for this node."
-                            }
-
-                            // Submitted externally indicator
-                            MaterialLabel {
-                                visible: node.isExternal
-                                text: MaterialIcons.cloud
-                                padding: 2
-                                font.pointSize: 7
-                                palette.text: Colors.sysPalette.text
-                                ToolTip.text: "Computed Externally"
-                            }
-
-                            // Lock indicator
-                            MaterialLabel {
-                                visible: root.readOnly
-                                text: MaterialIcons.lock
-                                padding: 2
-                                font.pointSize: 7
-                                palette.text: "red"
-                                ToolTip.text: "Locked"
-                            }
-
-                            MaterialLabel {
-                                id: nodeComment
-                                visible: node.comment !== "" || node.invalidation !== ""
-                                text: MaterialIcons.comment
-                                padding: 2
-                                font.pointSize: 7
-                                ToolTip {
-                                    id: nodeCommentTooltip
-                                    parent: header
-                                    visible: nodeCommentMA.containsMouse && nodeComment.visible
-                                    text: formatInternalAttributesTooltip(node.invalidation, node.comment)
-                                    implicitWidth: 400 // Forces word-wrap for long comments but the tooltip will be bigger than needed for short comments
-                                    delay: 300
-
-                                    // Relative position for the tooltip to ensure we will not get stuck in a case where it starts appearing over the mouse's
-                                    // position because it is a bit long and cutting off the hovering of the mouse area (which leads to the tooltip beginning
-                                    // to appear and immediately disappearing, over and over again)
-                                    x: implicitWidth / 2.5
-                                }
-
-                                MouseArea {
-                                    // If the node header is hovered, comments may be displayed
-                                    id: nodeCommentMA
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                }
-                            }
-
-                            MaterialLabel {
-                                id: nodeImageOutput
-                                visible: (node.hasImageOutput || node.has3DOutput || node.hasSequenceOutput || node.hasTextOutput)
-                                text: MaterialIcons.visibility
-                                padding: 2
-                                font.pointSize: 7
-                                property bool displayable: !node.isComputableType || (node.chunks.count > 0 && (["SUCCESS"].includes(node.globalStatus)))
-                                color: displayable ? palette.text : Qt.darker(palette.text, 1.8)
-
-                                ToolTip {
-                                    id: nodeImageOutputTooltip
-                                    parent: header
-                                    visible: nodeImageOutputMA.containsMouse && nodeImageOutput.visible
-                                    text: {
-                                        if ((node.hasImageOutput || node.hasSequenceOutput) && !node.has3DOutput)
-                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the Image Viewer." : "This node has image outputs."
-                                        else if (node.has3DOutput && !node.hasImageOutput && !node.hasSequenceOutput)
-                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the 3D Viewer." : "This node has 3D outputs."
-                                        else if (node.hasTextOutput && !node.hasImageOutput && !node.hasSequenceOutput && !node.has3DOutput)
-                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the Text Viewer." : "This node has text outputs."
-                                        else  // Handle case where a node might have both 2D and 3D outputs
-                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the Image or 3D Viewer." : "This node has image and 3D outputs."
-                                    }
-                                    implicitWidth: 500
-                                    delay: 300
-
-                                    // Relative position for the tooltip to ensure we will not get stuck in a case where it starts appearing over the mouse's
-                                    // position because it is a bit long and cutting off the hovering of the mouse area (which leads to the tooltip beginning
-                                    // to appear and immediately disappearing, over and over again)
-                                    x: implicitWidth / 2.5
-                                }
-
-                                MouseArea {
-                                    // If the node header is hovered, comments may be displayed
-                                    id: nodeImageOutputMA
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                }
-                            }
-
-                            // Version type indicator
-                            MaterialLabel {
-                                text: node.nodeVersionType === NodeVersionType.BETA ? MaterialIcons.science : MaterialIcons.new_releases
-                                visible: node.nodeVersionType === NodeVersionType.BETA || node.nodeVersionType === NodeVersionType.USER
-                                font.pointSize: 7
-                                padding: 2
-                                palette.text: Colors.sysPalette.text
-                                ToolTip.text: node.nodeVersionType === NodeVersionType.BETA ? "This node is in beta version." : "This node is a user plugin. It is not maintained by the core team."
-                            }
+                            ToolTip.visible: statusChipMA.containsMouse
+                            ToolTip.text: visible ? root.statusTooltip() : ""
+                            ToolTip.delay: 300
                         }
 
                         // flowOut pin - right side of header
@@ -680,7 +660,8 @@ Item {
                 NodeChunks {
                     visible: node.isComputableType
                     targetNode: node
-                    defaultColor: Colors.sysPalette.mid
+                    defaultColor: Colors.nodeBorder
+                    chunkColorFunction: function(chunk) { return Colors.getNodeChunkColor(chunk) }
                     implicitHeight: 3
                     width: parent.width
 
@@ -709,13 +690,11 @@ Item {
 
                     Rectangle {
                         anchors.fill: parent
-                        color: Colors.sysPalette.mid
+                        color: Colors.nodeBorder
                         z: -1
                     }
                 }
 
-                // Vertical Spacer
-                Item { width: parent.width; height: 2 }
 
                 // Input/Output Attributes
                 Item {
@@ -727,13 +706,14 @@ Item {
                     Column {
                         id: attributesColumn
                         width: parent.width
-                        spacing: 5
-                        bottomPadding: 2
+                        spacing: 0
+                        topPadding: 4
+                        bottomPadding: 4
 
                         Column {
                             id: outputs
                             width: parent.width
-                            spacing: 3
+                            spacing: 0
 
                             property var parentPins: new Map()
                             signal parentPinsUpdated()
@@ -808,10 +788,18 @@ Item {
                             }
                         }
 
+                        // Gap between the output and the input attributes
+                        Item {
+                            id: attributesGap
+                            width: parent.width
+                            height: 4
+                            visible: outputs.height > 0 && (inputs.height > 0 || inputParams.height > 0)
+                        }
+
                         Column {
                             id: inputs
                             width: parent.width
-                            spacing: 3
+                            spacing: 0
 
                             property var parentPins: new Map()
                             signal parentPinsUpdated()
@@ -887,27 +875,6 @@ Item {
                             }
                         }
 
-                        // Vertical Spacer
-                        Rectangle {
-                            height: inputParams.height > 0 ? 3 : 0
-                            visible: (height == 3)
-                            Behavior on height { PropertyAnimation {easing.type: Easing.Linear} }
-                            width: parent.width
-                            color: Colors.sysPalette.mid
-                            MaterialToolButton {
-                                text: " "
-                                width: parent.width
-                                height: parent.height
-                                padding: 0
-                                spacing: 0
-                                anchors.margins: 0
-                                font.pointSize: 6
-                                onClicked: {
-                                    m.displayParams = ! m.displayParams
-                                }
-                            }
-                        }
-
                         Rectangle {
                             id: inputParamsRect
                             width: parent.width
@@ -917,7 +884,7 @@ Item {
                             Column {
                                 id: inputParams
                                 width: parent.width
-                                spacing: 3
+                                spacing: 0
 
                                 property var parentPins: new Map()
                                 signal parentPinsUpdated()
@@ -1000,21 +967,16 @@ Item {
                                 }
                             }
                         }
-
-                        MaterialToolButton {
-                            text: root.hovered ? (m.displayParams ? MaterialIcons.arrow_drop_up : MaterialIcons.arrow_drop_down) : " "
-                            Layout.alignment: Qt.AlignBottom
-                            width: parent.width
-                            height: 5
-                            padding: 0
-                            spacing: 0
-                            anchors.margins: 0
-                            font.pointSize: 10
-                            onClicked: {
-                                m.displayParams = ! m.displayParams
-                            }
-                        }
                     }
+                }
+
+                NodeFooter {
+                    width: parent.width
+                    nodeItem: root
+                    meta: root.chunkStats.done > 0 || node.globalStatus === "RUNNING" ? root.chunkStats.done + "/" + root.chunkStats.count + " · " + root.formatDuration(root.chunkStats.elapsed) : ""
+                    modifiedCount: root.modifiedParamsCount
+                    expanded: m.displayParams
+                    onToggled: m.displayParams = !m.displayParams
                 }
             }
         }

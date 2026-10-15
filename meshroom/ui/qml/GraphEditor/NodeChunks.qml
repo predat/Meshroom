@@ -16,6 +16,8 @@ ListView {
     property var postprocessChunk: null
 
     property color defaultColor: Qt.darker(activePalette.window, 1.1)
+    /// Color of a chunk, overridable to use another set of status colors
+    property var chunkColorFunction: function(chunk) { return Colors.getChunkColor(chunk, { "NONE": root.defaultColor }) }
     property real chunkHeight: height
     property int modelSize: model ? model.count : 0
     
@@ -45,7 +47,7 @@ ListView {
             height: root.chunkHeight
             width: root.chunkWidth
             
-            property var chunkColor: Colors.getChunkColor(root.preprocessChunk, { "NONE": root.defaultColor })
+            property var chunkColor: root.chunkColorFunction(root.preprocessChunk)
             color: {
                 if (!root.highlightChunks || root.totalChunks == 1)
                     return chunkColor
@@ -61,7 +63,7 @@ ListView {
         height: root.chunkHeight
         width: root.chunkWidth
         
-        property var chunkColor: Colors.getChunkColor(object, { "NONE": root.defaultColor })
+        property var chunkColor: root.chunkColorFunction(object)
         color: {
             if (!root.highlightChunks || root.totalChunks == 1)
                 return chunkColor
@@ -85,7 +87,7 @@ ListView {
             height: root.chunkHeight
             width: root.chunkWidth
             
-            property var chunkColor: Colors.getChunkColor(root.postprocessChunk, { "NONE": root.defaultColor })
+            property var chunkColor: root.chunkColorFunction(root.postprocessChunk)
             color: {
                 if (!root.highlightChunks || root.totalChunks == 1)
                     return chunkColor
