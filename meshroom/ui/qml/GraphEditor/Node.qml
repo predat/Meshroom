@@ -907,7 +907,8 @@ Item {
                                     delegate: Loader {
                                         id: paramLoader
 
-                                        active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible
+                                        // Hidden parameters are not instantiated: each pin slows down the graph panning
+                                        active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible && isFullyActive
                                         visible: {
                                             if (Boolean(modelData.enabled || modelData.hasAnyOutputLinks || modelData.hasAnyInputLinks)) {
                                                 if (modelData.root && modelData.root.isExpandable) {
