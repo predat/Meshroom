@@ -45,6 +45,23 @@ QtObject {
         "SUBMITTED": "#2196F3"
     }
 
+    // Colors of the attributes' displayable data types (Attribute.dataType)
+    readonly property color dataTypeGeneric: "#9AA1AD"
+    readonly property var dataTypeColors: {
+        "sfmData": "#B48CF2",
+        "features": "#E5A54B",
+        "folder": "#E5A54B",
+        "image": "#5FB3F5",
+        "imagePairs": "#5FB3F5",
+        "matches": "#6CC785",
+        "tracks": "#6CC785",
+        "mesh": "#6CC785"
+    }
+
+    function dataTypeColor(dataType) {
+        return dataTypeColors[dataType] || dataTypeGeneric
+    }
+
     readonly property var durationColorScale: [
         {"time": 0, "color": grey},
         {"time": 5, "color": green},
