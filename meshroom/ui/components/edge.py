@@ -1,5 +1,5 @@
 from PySide6.QtCore import Signal, Property, QPointF, Qt, QObject, Slot
-from PySide6.QtGui import QPainterPath, QVector2D
+from PySide6.QtGui import QPainterPath, QPainterPathStroker
 from PySide6.QtQuick import QQuickItem
 
 
@@ -71,15 +71,10 @@ class EdgeMouseArea(QQuickItem):
         path = QPainterPath(p1)
         path.cubicTo(p1 + ctrlPt, p2 - ctrlPt, p2)
 
-        # Compute offset on x and y axis
-        halfThickness = self._thickness / 2.0
-        v = QVector2D(p2 - p1).normalized()
-        offset = QPointF(halfThickness * -v.y(), halfThickness * v.x())
-
-        self._path = QPainterPath(path.toReversed())
-        self._path.translate(-offset)
-        path.translate(offset)
-        self._path.connectPath(path)
+        # Outline of the curve stroked with the edge thickness: keeps a constant width along the curve
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self._thickness)
+        self._path = stroker.createStroke(path)
 
     def getThickness(self):
         return self._thickness

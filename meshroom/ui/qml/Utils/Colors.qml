@@ -59,7 +59,9 @@ QtObject {
     }
 
     function dataTypeColor(dataType) {
-        return dataTypeColors[dataType] || dataTypeGeneric
+        const color = dataTypeColors[dataType] || dataTypeGeneric
+        // Tokens are tuned for dark backgrounds: darken them to keep contrast on a light palette
+        return sysPalette.window.hslLightness > 0.5 ? Qt.darker(color, 1.35) : color
     }
 
     readonly property var durationColorScale: [

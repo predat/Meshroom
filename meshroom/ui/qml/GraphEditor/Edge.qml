@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Shapes 1.6
 
 import GraphEditor 1.0
-import MaterialIcons 2.2
 
 /**
  * A cubic spline representing an edge, going from point1 to point2, providing mouse interaction.
@@ -22,6 +21,16 @@ Item {
     property bool isForLoop: false
     property int loopSize: 0
     property int iteration: 0
+    // State of the data carried by the edge: "solid" (produced), "flow" (consumed by a running node) or "pending"
+    property string dataState: "solid"
+
+    // Edge from an input attribute (or connection preview without edge): long dashes, whatever the data state
+    readonly property bool fromInput: !(edge !== undefined && ((edge.src !== undefined && edge.src.isOutput) || edge.dst === undefined))
+    readonly property bool isFlowing: !fromInput && dataState === "flow"
+    // Dash pattern, in units of the stroke width; scaled down on thick edges to keep the dashes of a 2 px edge
+    readonly property real dashScale: 2 / Math.max(thickness, 2)
+    readonly property var dashPattern: (fromInput ? [6, 3] : isFlowing ? [3, 2] : [1, 2.5]).map(v => v * dashScale)
+    readonly property int strokeStyle: fromInput || dataState !== "solid" ? ShapePath.DashLine : ShapePath.SolidLine
 
     // Note: edgeArea is destroyed before path, so we need to test if not null to avoid warnings.
     readonly property bool containsMouse: (loopArea && loopArea.containsMouse) || (edgeArea && edgeArea.containsMouse)
@@ -54,7 +63,7 @@ Item {
         anchors.fill: parent
         // Cause rendering artifacts when enabled (and do not support hot reload really well)
         vendorExtensionsEnabled: false
-        opacity: 0.7
+        opacity: !root.fromInput && root.dataState === "pending" ? 0.45 : 1.0
 
         ShapePath {
             id: path
@@ -62,17 +71,25 @@ Item {
             startY: root.startY
             fillColor: "transparent"
 
-            strokeColor: "#3E3E3E"
-            strokeStyle: edge !== undefined && ((edge.src !== undefined && edge.src.isOutput) || edge.dst === undefined) ? ShapePath.SolidLine : ShapePath.DashLine
+            strokeColor: palette.text
+            strokeStyle: root.strokeStyle
             strokeWidth: 1
-            // Final visual width of this path (never below 1)
-            readonly property real visualWidth: Math.max(strokeWidth, 1)
-            dashPattern: [6 / visualWidth, 4 / visualWidth]
+            dashPattern: root.dashPattern
             capStyle: ShapePath.RoundCap
+
+            // Make the dashes flow from the source to the destination
+            NumberAnimation on dashOffset {
+                from: root.dashPattern[0] + root.dashPattern[1]
+                to: 0
+                duration: 500
+                loops: Animation.Infinite
+                running: root.visible && root.isFlowing
+            }
 
             PathCubic {
                 id: cubic
-                property real ctrlPtDist: 30
+                // Adaptive tangent: wider edges get smoother curves
+                property real ctrlPtDist: Math.max(40, Math.abs(x - root.startX) * 0.5)
                 x: root.isForLoop ? (root.startX + root.endX) / 2  - loopArea.width / 2 : root.endX
                 y: root.isForLoop ? (root.startY + root.endY) / 2 : root.endY
                 relativeControl1X: ctrlPtDist
@@ -89,16 +106,15 @@ Item {
             fillColor: "transparent"
 
             strokeColor: root.isForLoop ? root.color : "transparent"
-            strokeStyle: edge !== undefined && ((edge.src !== undefined && edge.src.isOutput) || edge.dst === undefined) ? ShapePath.SolidLine : ShapePath.DashLine
+            strokeStyle: root.strokeStyle
             strokeWidth: root.thickness
-            // Final visual width of this path (never below 1)
-            readonly property real visualWidth: Math.max(strokeWidth, 1)
-            dashPattern: [6 / visualWidth, 4 / visualWidth]
+            dashPattern: root.dashPattern
+            dashOffset: path.dashOffset
             capStyle: ShapePath.RoundCap
 
             PathCubic {
                 id: cubicSecondary
-                property real ctrlPtDist: 30
+                property real ctrlPtDist: Math.max(40, Math.abs(x - pathSecondary.startX) * 0.5)
                 x: root.endX
                 y: root.endY
                 relativeControl1X: ctrlPtDist
@@ -115,23 +131,23 @@ Item {
         y: (root.startY + root.endY) / 2
         visible: root.isForLoop
 
+        // Cardinality badge of the foreach loop
         Rectangle {
             anchors.centerIn: parent
-            property int margin: 2
-            width: icon.width + 2 * margin
-            height: icon.height + 2 * margin
-            radius: width
-            color: path.strokeColor
+            width: badgeLabel.implicitWidth + 12
+            height: badgeLabel.implicitHeight + 4
+            radius: height / 2
+            color: palette.base
+            border.color: path.strokeColor
+            border.width: 1.5
 
-            MaterialToolLabel {
-                id: icon
+            Label {
+                id: badgeLabel
                 anchors.centerIn: parent
-
-                iconText: MaterialIcons.loop
-                label.text: (root.iteration + 1) + "/" + root.loopSize + " "
-
-                labelIconColor: palette.base
-                ToolTip.text: "Foreach Loop"
+                text: "\u00D7" + root.loopSize
+                color: palette.text
+                font.pointSize: 8
+                font.bold: true
             }
 
             MouseArea {
@@ -139,6 +155,8 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 onClicked: root.pressed(arguments[0])
+                ToolTip.visible: containsMouse
+                ToolTip.text: "Foreach Loop: iteration " + (root.iteration + 1) + "/" + root.loopSize
             }
         }
     }
@@ -148,7 +166,7 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         thickness: root.thickness + 4
-        curveScale: cubic.ctrlPtDist / root.width  // Normalize by width
+        curveScale: root.width !== 0 ? cubic.ctrlPtDist / root.width : 0  // Normalize by width
         onPressed: function(event) {
             root.pressed(event)
         }

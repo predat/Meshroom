@@ -22,6 +22,33 @@ Item {
 
     property var _attributeToDelegate: ({})
 
+    // Names of the nodes whose edges are highlighted: the hovered node, or else the selected nodes
+    property var activeNodeNames: new Set()
+
+    function updateActiveNodeNames() {
+        const names = new Set()
+        if (uigraph && uigraph.hoveredNode) {
+            names.add(uigraph.hoveredNode.name)
+        } else if (uigraph) {
+            uigraph.nodeSelection.selectedIndexes.forEach(function(idx) {
+                names.add(uigraph.graph.nodes.at(idx.row).name)
+            })
+        }
+        activeNodeNames = names
+    }
+
+    onGraphChanged: updateActiveNodeNames()
+
+    Connections {
+        target: uigraph
+        function onHoveredNodeChanged() { root.updateActiveNodeNames() }
+    }
+
+    Connections {
+        target: uigraph ? uigraph.nodeSelection : null
+        function onSelectionChanged() { root.updateActiveNodeNames() }
+    }
+
     // Signals
     signal workspaceMoved()
     signal workspaceClicked()
@@ -591,18 +618,24 @@ Item {
                                            dst.attribute.type != "ListAttribute"
 
                     property bool inFocus: containsMouse || (edgeMenu.opened && edgeMenu.currentEdge === edge)
+                    // Whether the edge is connected to a hovered/selected node
+                    readonly property bool incident: root.activeNodeNames.has(edge.src.node.name) || root.activeNodeNames.has(edge.dst.node.name)
 
                     edge: object
                     isForLoop: forLoop
                     loopSize: forLoop ? loopSource.value.count : 0
 
                     iteration: forLoop ? loopSource.value.indexOf(edge.src) : 0
-                    color: edge.dst === root.edgeAboutToBeRemoved ? "red" : inFocus ? activePalette.highlight : activePalette.text
-                    thickness: {
-                        if (forLoop) {
-                            return (inFocus) ? 4 : 3
-                        }
-                        return (inFocus) ? 2 : 1
+                    color: edge.dst === root.edgeAboutToBeRemoved ? Colors.red : Colors.dataTypeColor(edge.src.dataType)
+                    thickness: forLoop ? 5 : (inFocus || incident) ? 3 : 2
+                    opacity: root.activeNodeNames.size === 0 || incident ? 1.0 : 0.3
+                    dataState: {
+                        const srcStatus = edge.src.node.globalStatus
+                        if (srcStatus === "SUCCESS" && edge.dst.node.globalStatus === "RUNNING")
+                            return "flow"
+                        if (srcStatus === "SUCCESS" || !edge.src.node.isComputableType)
+                            return "solid"
+                        return "pending"
                     }
                     point1x: isValidEdge ? src.globalX + src.outputAnchorPos.x : 0
                     point1y: isValidEdge ? src.globalY + src.outputAnchorPos.y : 0
