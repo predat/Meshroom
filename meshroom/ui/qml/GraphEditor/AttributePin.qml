@@ -434,6 +434,8 @@ RowLayout {
 
             // Text
             label.text: root.attribute.label
+            label.font.family: Colors.fontFamily
+            label.font.weight: Font.Normal
             label.font.pointSize: 9
             label.elide: hovered ? Text.ElideNone : Text.ElideMiddle
             label.horizontalAlignment: root.attribute && root.attribute.isOutput ? Text.AlignRight : Text.AlignLeft

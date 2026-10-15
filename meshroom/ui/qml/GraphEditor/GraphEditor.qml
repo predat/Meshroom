@@ -1395,6 +1395,7 @@ Item {
             Label {
                 id: dragInfoLabel
                 anchors.centerIn: parent
+                font.family: Colors.monoFamily
                 font.pointSize: 8
                 color: !connectionDragInfo.onTarget ? activePalette.text : root.dropTargetReason ? Colors.red : Colors.green
                 text: {

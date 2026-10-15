@@ -64,6 +64,29 @@ QtObject {
         return sysPalette.window.hslLightness > 0.5 ? Qt.darker(color, 1.35) : color
     }
 
+    // Graph Editor fonts (meshroom/ui/fonts, OFL 1.1), with a fallback on the system fonts if one of them fails to load
+    property FontLoader plexRegular: FontLoader { source: "../../fonts/IBMPlexSans-Regular.ttf" }
+    property FontLoader plexMedium: FontLoader { source: "../../fonts/IBMPlexSans-Medium.ttf" }
+    property FontLoader plexSemiBold: FontLoader { source: "../../fonts/IBMPlexSans-SemiBold.ttf" }
+    property FontLoader plexCondensedSemiBold: FontLoader { source: "../../fonts/IBMPlexSansCondensed-SemiBold.ttf" }
+    property FontLoader monoRegular: FontLoader { source: "../../fonts/JetBrainsMono-Regular.ttf" }
+    readonly property bool sansLoaded: [plexRegular, plexMedium, plexSemiBold].every(loader => loader.status === FontLoader.Ready)
+    readonly property bool headerLoaded: plexCondensedSemiBold.status === FontLoader.Ready
+    readonly property bool monoLoaded: monoRegular.status === FontLoader.Ready
+    readonly property bool fontsLoaded: sansLoaded && headerLoaded && monoLoaded
+    readonly property string fontFamily: sansLoaded ? plexRegular.name : Qt.application.font.family
+    // Node header labels and Backdrop titles only
+    readonly property string headerFamily: headerLoaded ? plexCondensedSemiBold.name : fontFamily
+    readonly property string monoFamily: monoLoaded ? monoRegular.name : "monospace"
+
+    // Local files: the loaders are already Ready or in Error once the singleton is created
+    Component.onCompleted: {
+        for (const loader of [plexRegular, plexMedium, plexSemiBold, plexCondensedSemiBold, monoRegular]) {
+            if (loader.status === FontLoader.Error)
+                console.warn("Graph Editor font could not be loaded, using its fallback: " + loader.source)
+        }
+    }
+
     // Graph Editor node tokens: dark values, with a light variant (text contrast >= 4.5:1 on the node background)
     readonly property bool lightPalette: sysPalette.window.hslLightness > 0.5
     readonly property color nodeBackground: lightPalette ? "#F6F7F9" : "#1D2027"

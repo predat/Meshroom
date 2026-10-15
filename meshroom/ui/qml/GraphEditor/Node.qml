@@ -530,8 +530,9 @@ Item {
                             text: root.nodeLabel
                             color: Colors.nodeText
                             elide: Text.ElideRight
+                            font.family: Colors.headerFamily
+                            font.weight: Font.DemiBold
                             font.pointSize: 10
-                            font.bold: true
 
                             FontMetrics {
                                 id: labelMetrics
@@ -562,12 +563,12 @@ Item {
                             }
                         }
 
-                        // Status chip: icon only when the full chip would leave less than 110 px to the label
+                        // Status chip: icon only when the full chip would leave less than 100 px to the label
                         Rectangle {
                             id: statusChipItem
                             readonly property real fullWidth: chipIcon.implicitWidth + chipRow.spacing + chipWord.implicitWidth + 8
                             readonly property bool iconOnly: headerLayout.width - categoryTile.width - fullWidth - 2 * headerLayout.spacing
-                                                             - (compatibilityBadgeLoader.visible ? compatibilityBadgeLoader.width + headerLayout.spacing : 0) < 110
+                                                             - (compatibilityBadgeLoader.visible ? compatibilityBadgeLoader.width + headerLayout.spacing : 0) < 100
                             visible: root.statusChip !== null
                             Layout.preferredWidth: iconOnly ? Layout.preferredHeight : fullWidth
                             Layout.preferredHeight: 18
@@ -590,7 +591,9 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: !statusChipItem.iconOnly
                                     text: root.statusChip ? root.statusChip.text : ""
-                                    font.pointSize: 8
+                                    font.family: Colors.fontFamily
+                                    font.weight: Font.Medium
+                                    font.pointSize: 8.5
                                     color: Colors.nodeText
                                 }
                             }

@@ -88,7 +88,7 @@ Item {
         text: root.meta
         visible: text !== ""
         elide: Text.ElideRight
-        font.family: "monospace"
+        font.family: Colors.monoFamily
         font.pointSize: 8
         color: Colors.nodeTextSecondary
     }
@@ -98,7 +98,9 @@ Item {
         id: fullLabel
         visible: false
         text: (root.expanded ? "▾" : "▸") + " Params" + (root.modifiedCount > 0 ? " · " + root.modifiedCount + " modified" : "")
-        font.pointSize: 8
+        font.family: Colors.fontFamily
+        font.weight: Font.Medium
+        font.pointSize: 8.5
     }
 
     MouseArea {
@@ -129,7 +131,9 @@ Item {
                         return fullLabel.text
                     return (root.expanded ? "▾" : "▸") + (root.modifiedCount > 0 ? " " + root.modifiedCount : "")
                 }
-                font.pointSize: 8
+                font.family: Colors.fontFamily
+                font.weight: Font.Medium
+                font.pointSize: 8.5
                 color: toggleArea.containsMouse ? Colors.nodeText : Colors.nodeTextSecondary
             }
             Rectangle {
@@ -161,7 +165,9 @@ Item {
             visible: root.badges.length > root.maxBadges
             text: "⋯" + (root.badges.length - root.maxBadges)
             padding: 2
-            font.pointSize: 8
+            font.family: Colors.fontFamily
+            font.weight: Font.Medium
+            font.pointSize: 8.5
             color: overflowMA.containsMouse ? Colors.nodeText : Colors.nodeTextSecondary
             MouseArea {
                 id: overflowMA

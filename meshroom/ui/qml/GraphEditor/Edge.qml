@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Shapes 1.6
 
 import GraphEditor 1.0
+import Utils 1.0
 
 /**
  * A cubic spline representing an edge, going from point1 to point2, providing mouse interaction.
@@ -146,6 +147,7 @@ Item {
                 anchors.centerIn: parent
                 text: "\u00D7" + root.loopSize
                 color: palette.text
+                font.family: Colors.monoFamily
                 font.pointSize: 8
                 font.bold: true
             }
