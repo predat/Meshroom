@@ -25,7 +25,10 @@ SelectionBox {
             if (!delegate)
                 continue
             // For backdrop nodes, only select when the selection rect intersects the titlebar.
-            const delegateRect = Qt.rect(delegate.x, delegate.y, delegate.width, delegate.isBackdropNode ? delegate.headerHeight : delegate.height)
+            // Delegates with a footprint (graph nodes) use it rather than their visible height, which depends on the zoom.
+            const delegateHeight = delegate.isBackdropNode ? delegate.headerHeight :
+                                   delegate.footprintHeight !== undefined ? delegate.footprintHeight : delegate.height
+            const delegateRect = Qt.rect(delegate.x, delegate.y, delegate.width, delegateHeight)
             if (Geom2D.rectRectIntersect(mappedSelectionRect, delegateRect)) {
                 selectedIndices.push(i)
 

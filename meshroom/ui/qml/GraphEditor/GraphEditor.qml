@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 
 import Controls 1.0
 import MaterialIcons 2.2
@@ -21,6 +22,61 @@ Item {
     property var edgeAboutToBeRemoved: undefined
 
     property var _attributeToDelegate: ({})
+    property var _nodeToDelegate: new Map()
+
+    /// Level of detail of the nodes, from the zoom: 0 = full, 1 = structure (header only), 2 = overview (pill)
+    property int lod: 0
+    readonly property real lodHysteresis: 0.02
+
+    function updateLod() {
+        /*
+         * Updates the level of detail from the zoom, with an hysteresis around each threshold:
+         * a zoom going back and forth around a threshold does not switch the level each time.
+         */
+        if (!GraphEditorSettings.semanticZoom) {
+            lod = 0
+            return
+        }
+        const zoom = draggable.scale
+        const structure = GraphEditorSettings.lodStructureThreshold
+        const overview = GraphEditorSettings.lodOverviewThreshold
+        const h = lodHysteresis
+        if (lod === 0)
+            lod = zoom < overview - h ? 2 : zoom < structure - h ? 1 : 0
+        else if (lod === 1)
+            lod = zoom >= structure + h ? 0 : zoom < overview - h ? 2 : 1
+        else
+            lod = zoom >= structure + h ? 0 : zoom >= overview + h ? 1 : 2
+    }
+
+    Connections {
+        target: GraphEditorSettings
+        function onSemanticZoomChanged() { root.updateLod() }
+        function onLodStructureThresholdChanged() { root.updateLod() }
+        function onLodOverviewThresholdChanged() { root.updateLod() }
+    }
+
+    /// Footprint of a node delegate: the constant layout size for nodes, whatever their level of detail
+    function footprint(item) {
+        return Qt.rect(item.x, item.y, item.width, item.isBackdropNode ? item.height : item.footprintHeight)
+    }
+
+    /// Animated zoom at 1.0, centered on a node delegate
+    function zoomToNode(item) {
+        const rect = footprint(item)
+        zoomAnimation.toX = root.width / 2 - (rect.x + rect.width / 2)
+        zoomAnimation.toY = root.height / 2 - (rect.y + rect.height / 2)
+        zoomAnimation.restart()
+    }
+
+    ParallelAnimation {
+        id: zoomAnimation
+        property real toX: 0
+        property real toY: 0
+        NumberAnimation { target: draggable; property: "scale"; to: 1.0; duration: 300; easing.type: Easing.OutCubic }
+        NumberAnimation { target: draggable; property: "x"; to: zoomAnimation.toX; duration: 300; easing.type: Easing.OutCubic }
+        NumberAnimation { target: draggable; property: "y"; to: zoomAnimation.toY; duration: 300; easing.type: Easing.OutCubic }
+    }
 
     // Names of the nodes whose edges are highlighted: the hovered node, or else the selected nodes
     property var activeNodeNames: new Set()
@@ -105,11 +161,7 @@ Item {
 
     /// Get node delegate for the given node object
     function nodeDelegate(node) {
-        for(var i = 0; i < nodeRepeater.count; ++i) {
-            if (nodeRepeater.getItemAt(i).node === node)
-                return nodeRepeater.getItemAt(i)
-        }
-        return undefined
+        return _nodeToDelegate.get(node)
     }
 
     /// Get the InputNode delegate at the given position in 'draggable' coordinates, or null
@@ -491,6 +543,8 @@ Item {
             width: 1000
             height: 1000
 
+            onScaleChanged: root.updateLod()
+
             Popup {
                 id: edgeMenu
                 property var currentEdge: null
@@ -594,9 +648,14 @@ Item {
                 model: nodeRepeater.loaded && root.graph ? root.graph.edges : undefined
 
                 delegate: Edge {
-                    function getAttributePin(attribute, attributeToDelegate) {
+                    function getAttributePin(attribute, attributeToDelegate, nodeItem, isSource) {
                         if (!attribute) {
                             return null
+                        }
+
+                        // Pins are hidden below the full level of detail: anchor on the node aggregated port
+                        if (nodeItem && nodeItem.lod > 0) {
+                            return isSource ? nodeItem.outputPort : nodeItem.inputPort
                         }
 
                         // Get the first visible parent of "attribute"
@@ -629,17 +688,22 @@ Item {
                         return dstAttributeDelegate
                     }
 
+                    readonly property var srcNodeItem: root._nodeToDelegate.get(edge.src.node)
+                    readonly property var dstNodeItem: root._nodeToDelegate.get(edge.dst.node)
                     property var src: {
-                        return getAttributePin(edge.src, root._attributeToDelegate)
+                        return getAttributePin(edge.src, root._attributeToDelegate, srcNodeItem, true)
                         }
                     property var dst: {
-                        return getAttributePin(edge.dst, root._attributeToDelegate)
+                        return getAttributePin(edge.dst, root._attributeToDelegate, dstNodeItem, false)
                         }
                     property bool isValidEdge: src != null && dst != null
-                    visible: isValidEdge && src.visible && dst.visible
+                    // Overview: replaced by the merged edges, but kept (hidden) for the edges cutting
+                    visible: isValidEdge && src.visible && dst.visible && root.lod < 2
 
                     property var loopSource: edge.src && edge.src.root && edge.src.root.value ? edge.src.root : null
+                    // Aggregated ports have no attribute: foreach edges are drawn as regular ones
                     property bool forLoop: src != null && dst != null &&
+                                           !!src.attribute && !!dst.attribute &&
                                            loopSource != null &&
                                            src.attribute.type === "ListAttribute" &&
                                            dst.attribute.type != "ListAttribute"
@@ -683,6 +747,43 @@ Item {
                                 edgeMenu.y = spawnPosition.y
                                 edgeMenu.open()
                             }
+                        }
+                    }
+                }
+            }
+
+            // Overview: one neutral edge per pair of connected nodes, thicker with the number of edges it merges
+            Repeater {
+                id: mergedEdgesRepeater
+                model: root.lod === 2 && nodeRepeater.loaded ? uigraph.mergedEdges : 0
+
+                // Plain shape, same curve as the Edges: no interaction in the overview
+                delegate: Shape {
+                    readonly property var srcItem: root._nodeToDelegate.get(modelData.src)
+                    readonly property var dstItem: root._nodeToDelegate.get(modelData.dst)
+                    readonly property bool isValidEdge: !!srcItem && !!dstItem
+
+                    visible: isValidEdge
+                    vendorExtensionsEnabled: false
+
+                    ShapePath {
+                        id: mergedPath
+                        startX: isValidEdge ? srcItem.outputPort.globalX + srcItem.outputPort.outputAnchorPos.x : 0
+                        startY: isValidEdge ? srcItem.outputPort.globalY + srcItem.outputPort.outputAnchorPos.y : 0
+                        fillColor: "transparent"
+                        strokeColor: Colors.nodeTextSecondary
+                        // Screen pixels
+                        strokeWidth: Math.min(2 + modelData.count, 8) / draggable.scale
+                        capStyle: ShapePath.RoundCap
+
+                        PathCubic {
+                            property real ctrlPtDist: Math.max(40, Math.abs(x - mergedPath.startX) * 0.5)
+                            x: isValidEdge ? dstItem.inputPort.globalX + dstItem.inputPort.inputAnchorPos.x : 0
+                            y: isValidEdge ? dstItem.inputPort.globalY + dstItem.inputPort.inputAnchorPos.y : 0
+                            control1X: mergedPath.startX + ctrlPtDist
+                            control1Y: mergedPath.startY
+                            control2X: x - ctrlPtDist
+                            control2Y: y
                         }
                     }
                 }
@@ -1052,6 +1153,13 @@ Item {
 
                             node: object
                             width: uigraph.layout.nodeWidth
+                            footprintHeight: uigraph.layout.nodeHeight
+                            lod: root.lod
+                            zoom: draggable.scale
+
+                            Component.onCompleted: root.registerNodeDelegate(node, nodeDelegate)
+                            Component.onDestruction: root.unregisterNodeDelegate(nodeDelegate)
+                            onZoomRequested: root.zoomToNode(nodeDelegate)
 
                             mainSelected: uigraph.selectedNode === node
                             hovered: uigraph.hoveredNode === node
@@ -1209,6 +1317,7 @@ Item {
                             id: backdropDelegate
                             node: object
                             modelInstantiator: nodeRepeater
+                            zoom: draggable.scale
 
                             mainSelected: uigraph.selectedNode === node
                             hovered: uigraph.hoveredNode === node
@@ -1491,6 +1600,8 @@ Item {
         uigraph: root.uigraph
         draggable: draggable
         nodeRepeater: nodeRepeater
+        nodeToDelegate: root._nodeToDelegate
+        visible: root.lod < 2
         anchors.fill: parent
 
         onComputeRequest: function(node) {
@@ -1590,10 +1701,10 @@ Item {
                         var maxY = -Number.MAX_VALUE
                         for (var i = 0; i < selectedNodes.length; i++) {
                             var n = selectedNodes[i]
-                            // Actual delegate size: node heights vary with their visible attributes
+                            // Node footprint, constant whatever the level of detail (actual size for backdrops)
                             var item = nodeDelegate(n)
                             var nw = item ? item.width : uigraph.layout.nodeWidth
-                            var nh = item ? item.height : uigraph.layout.nodeHeight
+                            var nh = item ? footprint(item).height : uigraph.layout.nodeHeight
                             minX = Math.min(minX, n.x)
                             minY = Math.min(minY, n.y)
                             maxX = Math.max(maxX, n.x + nw)
@@ -1721,7 +1832,7 @@ Item {
             function nextItem() {
                 // Compute bounding box
                 var node = nodeRepeater.getItemAt(filteredNodes.itemAt(navigation.currentIndex).index_)
-                var bbox = Qt.rect(node.x, node.y, node.width, node.height)
+                var bbox = root.footprint(node)
                 // Rescale to fit the bounding box in the view, zoom is limited to prevent huge text
                 draggable.scale = Math.min(Math.min(root.width / bbox.width, root.height / bbox.height),maxZoom)
                 // Recenter
@@ -1731,9 +1842,14 @@ Item {
         }
     }
 
+    // Pins are created and destroyed by whole nodes (level of detail changes): notify the edges once for all of them
+    function notifyAttributeToDelegateChanged() {
+        root._attributeToDelegateChanged()
+    }
+
     function registerAttributePin(attribute, pin) {
         root._attributeToDelegate[attribute.uuid] = pin
-        root._attributeToDelegateChanged()
+        Qt.callLater(root.notifyAttributeToDelegateChanged)
     }
 
     function unregisterAttributePin(attribute, pin) {
@@ -1742,7 +1858,23 @@ Item {
         if (attribute.uuid in root._attributeToDelegate) {
             if (root._attributeToDelegate[attribute.uuid] !== pin) { return }
             delete root._attributeToDelegate[attribute.uuid]
-            root._attributeToDelegateChanged()
+            Qt.callLater(root.notifyAttributeToDelegateChanged)
+        }
+    }
+
+    function registerNodeDelegate(node, delegate) {
+        root._nodeToDelegate.set(node, delegate)
+        root._nodeToDelegateChanged()
+    }
+
+    function unregisterNodeDelegate(delegate) {
+        // The node may already be destroyed: look the delegate up
+        for (const [node, item] of root._nodeToDelegate) {
+            if (item === delegate) {
+                root._nodeToDelegate.delete(node)
+                root._nodeToDelegateChanged()
+                return
+            }
         }
     }
 
@@ -1751,9 +1883,10 @@ Item {
         if (first === null) {
             return Qt.rect(0, 0, 0, 0)
         }
-        var bbox = Qt.rect(first.x, first.y, first.x + first.width, first.y + first.height)
+        var firstRect = footprint(first)
+        var bbox = Qt.rect(firstRect.x, firstRect.y, firstRect.x + firstRect.width, firstRect.y + firstRect.height)
         for (var i = 0; i < root.graph.nodes.count; ++i) {
-            var item = nodeRepeater.getItemAt(i)
+            var item = footprint(nodeRepeater.getItemAt(i))
             bbox.x = Math.min(bbox.x, item.x)
             bbox.y = Math.min(bbox.y, item.y)
             bbox.width = Math.max(bbox.width, item.x + item.width)
@@ -1771,13 +1904,13 @@ Item {
          * Maximum x,y postion of the selected nodes.
          */
         var firstIdx = uigraph.nodeSelection.selectedIndexes[0]
-        const first = nodeRepeater.getItemAt(firstIdx.row)
+        const first = footprint(nodeRepeater.getItemAt(firstIdx.row))
         // Bounding box of the first selected item
         var bbox = Qt.rect(first.x, first.y, first.x + first.width, first.y + first.height)
         // Iterate over the remaining items in the selection
         uigraph.nodeSelection.selectedIndexes.forEach(function(idx) {
             if(idx != firstIdx) {
-                const item = nodeRepeater.getItemAt(idx.row)
+                const item = footprint(nodeRepeater.getItemAt(idx.row))
                 bbox.x = Math.min(bbox.x, item.x)
                 bbox.y = Math.min(bbox.y, item.y)
                 bbox.width = Math.max(bbox.width, item.x + item.width)

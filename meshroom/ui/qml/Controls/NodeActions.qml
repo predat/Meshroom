@@ -16,6 +16,7 @@ Item {
     property var uigraph: null
     property var draggable: null     // The draggable container from GraphEditor
     property var nodeRepeater: null  // Reference to nodeRepeater to find delegates
+    property var nodeToDelegate: null  // Map node -> delegate maintained by the graph editor
 
     // Signals
     signal computeRequest(var node)      // Start local computation
@@ -31,13 +32,9 @@ Item {
       * Get the node delegate
       */
     function nodeDelegate(node) {
-        if (!nodeRepeater) 
+        if (!nodeToDelegate)
             return null
-        for (var i = 0; i < nodeRepeater.count; ++i) {
-            if (nodeRepeater.getItemAt(i).node === node)
-                return nodeRepeater.getItemAt(i)
-        }
-        return null
+        return nodeToDelegate.get(node) || null
     }
 
     enum ButtonState {

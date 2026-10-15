@@ -951,6 +951,19 @@ Page {
 
                     MenuSeparator { }
 
+                    MenuItem {
+                        text: "Semantic Zoom"
+                        checkable: true
+                        checked: GraphEditorSettings.semanticZoom
+                        onToggled: GraphEditorSettings.semanticZoom = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Simplify the nodes and the edges when zooming out in the Graph Editor"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
                     Menu {
                         id: nodeActionsSettingsMenu
                         title: "NodeActions Settings"
