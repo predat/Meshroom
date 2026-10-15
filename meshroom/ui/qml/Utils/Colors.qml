@@ -107,6 +107,8 @@ QtObject {
         "INPUT": "transparent"
     }
     readonly property color nodeStatusFarm: tokenColor("#A371F7")
+    // Edges cutting (knife): the error status color
+    readonly property color edgeCut: nodeStatusColors["ERROR"]
 
     // Icon tile of a node, by node type category (Material icon name + tint); "" is the fallback
     readonly property var categoryStyles: {

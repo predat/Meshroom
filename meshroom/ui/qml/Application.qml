@@ -964,6 +964,19 @@ Page {
                         }
                     }
 
+                    MenuItem {
+                        text: "Insert on Edge"
+                        checkable: true
+                        checked: GraphEditorSettings.insertOnEdge
+                        onToggled: GraphEditorSettings.insertOnEdge = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Dropping a node on a compatible edge inserts it (hold Alt to drop without inserting)"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
                     Menu {
                         id: nodeActionsSettingsMenu
                         title: "NodeActions Settings"

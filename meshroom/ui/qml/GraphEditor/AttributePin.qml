@@ -52,6 +52,8 @@ RowLayout {
     readonly property bool isDragSource: inputConnectMA.dragTriggered || outputConnectMA.dragTriggered
     readonly property bool guiding: !!nodeItem && !!nodeItem.compatibleAttributeUuids
     readonly property bool isCompatible: guiding && nodeItem.compatibleAttributeUuids.has(attribute.uuid)
+    // Target of the node insertion previewed on an edge
+    readonly property bool isInsertTarget: !!nodeItem && !!nodeItem.insertAttributeUuids && nodeItem.insertAttributeUuids.has(attribute.uuid)
     // Header flow pins (compact) are hidden unless connected, the node hovered or a compatible drag target;
     // their drag zone stays active while hidden
     readonly property bool hiddenFlowPin: compact && !isConnected && !isDragSource && !isCompatible && !(nodeItem && nodeItem.hovered)
@@ -258,7 +260,8 @@ RowLayout {
                 isFlow: root.compact
                 filled: root.attribute.hasAnyInputLinks
                 halfFilled: root.hasConnectedChildren(false)
-                hovered: inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop)
+                hovered: inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop) ||
+                         root.isInsertTarget
                 compatible: root.isCompatible
             }
 
@@ -501,7 +504,7 @@ RowLayout {
             filled: root.attribute.hasAnyOutputLinks
             halfFilled: root.hasConnectedChildren(true)
             hovered: root.attribute.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
-                                                (outputDropArea.containsDrag && outputDropArea.acceptableDrop))
+                                                (outputDropArea.containsDrag && outputDropArea.acceptableDrop)) || root.isInsertTarget
             compatible: root.isCompatible
         }
 

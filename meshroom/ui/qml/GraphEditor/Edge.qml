@@ -24,14 +24,18 @@ Item {
     property int iteration: 0
     // State of the data carried by the edge: "solid" (produced), "flow" (consumed by a running node) or "pending"
     property string dataState: "solid"
+    // Crossed by the knife: about to be removed
+    property bool cut: false
+    // Insertion preview: a node is about to be inserted on this edge
+    property bool highlighted: false
 
     // Edge from an input attribute (or connection preview without edge): long dashes, whatever the data state
     readonly property bool fromInput: !(edge !== undefined && ((edge.src !== undefined && edge.src.isOutput) || edge.dst === undefined))
     readonly property bool isFlowing: !fromInput && dataState === "flow"
     // Dash pattern, in units of the stroke width; scaled down on thick edges to keep the dashes of a 2 px edge
     readonly property real dashScale: 2 / Math.max(thickness, 2)
-    readonly property var dashPattern: (fromInput ? [6, 3] : isFlowing ? [3, 2] : [1, 2.5]).map(v => v * dashScale)
-    readonly property int strokeStyle: fromInput || dataState !== "solid" ? ShapePath.DashLine : ShapePath.SolidLine
+    readonly property var dashPattern: (cut ? [3, 2] : fromInput ? [6, 3] : isFlowing ? [3, 2] : [1, 2.5]).map(v => v * dashScale)
+    readonly property int strokeStyle: cut || fromInput || dataState !== "solid" ? ShapePath.DashLine : ShapePath.SolidLine
 
     // Note: edgeArea is destroyed before path, so we need to test if not null to avoid warnings.
     readonly property bool containsMouse: (loopArea && loopArea.containsMouse) || (edgeArea && edgeArea.containsMouse)
@@ -54,17 +58,48 @@ Item {
         /**
          * Detects whether a line along the given rects diagonal intersects with the edge mouse area.
          */
+        // Cheap bounding box rejection first: the curve tangents can exceed the box horizontally by ctrlPtDist
+        const marginX = cubic.ctrlPtDist + thickness
+        if (Math.max(p1.x, p2.x) < Math.min(x, x + width) - marginX || Math.min(p1.x, p2.x) > Math.max(x, x + width) + marginX ||
+            Math.max(p1.y, p2.y) < Math.min(y, y + height) - thickness || Math.min(p1.y, p2.y) > Math.max(y, y + height) + thickness) {
+            return false
+        }
         // The edgeArea is within the parent Item and its bounds and position are relative to its parent
         // Map the original rect to the coordinates of the edgeArea by subtracting the parent's coordinates from the rect
         // This mapped rect would ensure that the rect coordinates map to 0 of the edge area
         return edgeArea.intersectsSegment(Qt.point(p1.x - x, p1.y - y), Qt.point(p2.x - x, p2.y - y));
     }
 
+    // Insertion preview halo, only instantiated while previewed
+    Loader {
+        active: root.highlighted
+        anchors.fill: parent
+        sourceComponent: Shape {
+            vendorExtensionsEnabled: false
+            ShapePath {
+                startX: root.startX
+                startY: root.startY
+                fillColor: "transparent"
+                strokeColor: Qt.alpha(root.color, 0.35)
+                strokeWidth: root.thickness + 8
+                capStyle: ShapePath.RoundCap
+                PathCubic {
+                    x: cubic.x
+                    y: cubic.y
+                    control1X: root.startX + cubic.ctrlPtDist
+                    control1Y: root.startY
+                    control2X: cubic.control2X
+                    control2Y: cubic.control2Y
+                }
+            }
+        }
+    }
+
     Shape {
         anchors.fill: parent
         // Cause rendering artifacts when enabled (and do not support hot reload really well)
         vendorExtensionsEnabled: false
-        opacity: !root.fromInput && root.dataState === "pending" ? 0.45 : 1.0
+        opacity: !root.cut && !root.fromInput && root.dataState === "pending" ? 0.45 : 1.0
 
         ShapePath {
             id: path
