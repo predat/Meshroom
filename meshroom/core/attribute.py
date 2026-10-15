@@ -597,6 +597,15 @@ class Attribute(BaseObject):
         """
         return bool(self.node.graph and self.isInput and self.node.graph._edges and self in self.node.graph._edges.keys())
 
+    def _getDataType(self) -> str:
+        """
+        The displayable data type from the description; a generic input file takes the one of its link source.
+        """
+        dataType = self._desc.dataType
+        if dataType == "file" and self.isLink:
+            return self._getInputLink().dataType
+        return dataType
+
     def _getInputLink(self, recursive=False) -> Attribute:
         """
         Return the direct upstream connected attribute.
@@ -772,8 +781,6 @@ class Attribute(BaseObject):
     type = Property(str, lambda self: self._desc.type, constant=True)
     # The type of the elements of the attribute as a string.
     baseType = Property(str, lambda self: self._desc.type, constant=True)
-    # The displayable data type of the attribute (e.g. "sfmData", "image"), used to color it in the UI.
-    dataType = Property(str, lambda self: self._desc.dataType, constant=True)
     # Whether the attribute is a node input attribute.
     isInput = Property(bool, lambda self: not self._isOutput, constant=True)
     # Whether the attribute is a node output attribute.
@@ -833,6 +840,8 @@ class Attribute(BaseObject):
     hasAnyInputLinks = Property(bool, _hasAnyInputLinks, notify=inputLinksChanged)
     # Whether the attribute or any of its elements is linked by another attribute.
     hasAnyOutputLinks = Property(bool, _hasAnyOutputLinks, notify=outputLinksChanged)
+    # The displayable data type of the attribute (e.g. "sfmData", "image"), used to color it in the UI.
+    dataType = Property(str, _getDataType, notify=inputLinksChanged)
 
     # The list of attributes that refer to this one as their parent.
     flatStaticChildrenChanged = Signal()  # AnySet's children list can change on runtime

@@ -44,6 +44,8 @@ class NodeWithDataTypes(desc.Node):
     (desc.File(name="masksFolder", value=""), "image"),
     (desc.File(name="output", value="{nodeCacheFolder}"), "folder"),
     (desc.File(name="model", value="", semantic="3d"), "mesh"),
+    (desc.File(name="outputData", value="{nodeCacheFolder}/ccheckers.json"), "text"),
+    (desc.File(name="tracks", value="{nodeCacheFolder}/tracksFile.json"), "tracks"),
     (desc.ListAttribute(name="matchesFolders", elementDesc=desc.File(name="matchesFolder", value="")), "matches"),
     (desc.GroupAttribute(name="group", items=[desc.IntParam(name="count", value=1)]), "group"),
     (desc.IntParam(name="count", value=1), "scalar"),
@@ -73,6 +75,38 @@ def test_attributeDataType():
         for name, dataType in expected.items():
             assert node.attribute(name).dataType == dataType, name
         assert node.attribute("featuresFolders").desc.elementDesc.dataType == "features"
+
+
+def test_linkedInputTakesSourceDataType():
+    with registeredNodeTypes([NodeWithDataTypes]):
+        graph = Graph("")
+        src = graph.addNewNode(NodeWithDataTypes.__name__)
+        dst = graph.addNewNode(NodeWithDataTypes.__name__)
+        graph.addEdge(src.attribute("output"), dst.attribute("input"))
+        graph.addEdge(src.attribute("output"), dst.attribute("custom"))
+        # Generic input: takes the source data type; typed input: keeps its own
+        assert dst.attribute("input").dataType == "sfmData"
+        assert dst.attribute("custom").dataType == "features"
+        graph.removeEdge(dst.attribute("input"))
+        assert dst.attribute("input").dataType == "file"
+
+
+@pytest.mark.parametrize("attributeName, expected", [
+    ("CameraInit_1.output", "sfmData"),
+    ("ColorCheckerDetection_1.input", "sfmData"),
+    ("ColorCheckerDetection_1.outputData", "text"),
+    ("ColorCheckerCorrection_1.inputData", "text"),
+    ("ColorCheckerCorrection_1.input", "sfmData"),
+    ("ColorCheckerCorrection_1.outSfMData", "sfmData"),
+])
+def test_colorCalibrationDataTypes(attributeName, expected):
+    meshroom.core.initNodes()
+    meshroom.core.initPipelines()
+    if "colorCalibration" not in meshroom.core.pipelineTemplates:
+        pytest.skip("'colorCalibration' pipeline template not available")
+    graph = loadGraph(meshroom.core.pipelineTemplates["colorCalibration"])
+    nodeName, attributeName = attributeName.split(".")
+    assert graph.node(nodeName).attribute(attributeName).dataType == expected
 
 
 def _allAttributes(attributes):

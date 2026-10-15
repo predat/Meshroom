@@ -1,8 +1,10 @@
 import QtQuick
 
+import MaterialIcons 2.2
+
 /**
  * Visual of an attribute pin: shape by cardinality (circle, square for lists, diamond for groups),
- * colored by data type, with a hover halo and a compatibility ring.
+ * colored by data type, with a hover halo and a compatibility ring. Flow pins are triangles.
  */
 
 Item {
@@ -11,6 +13,8 @@ Item {
     property color color
     property bool isList: false
     property bool isGroup: false
+    /// Node header flow pin (flowInputs/flowOutput): triangle
+    property bool isFlow: false
     /// Connected: filled shape; children connected under a collapsed group: half-filled
     property bool filled: false
     property bool halfFilled: false
@@ -50,8 +54,17 @@ Item {
     }
 
     Figure {
+        visible: !root.isFlow
         color: root.filled ? root.color : root.halfFilled ? Qt.alpha(root.color, 0.5) : palette.base
         border.color: root.color
         border.width: 1.5
+    }
+
+    MaterialLabel {
+        visible: root.isFlow
+        anchors.centerIn: parent
+        text: root.filled ? MaterialIcons.play_arrow : MaterialIcons.chevron_right
+        font.pointSize: 10
+        color: root.color
     }
 }

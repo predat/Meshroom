@@ -65,17 +65,13 @@ Item {
         return { "done": done, "count": count, "elapsed": elapsed }
     }
 
-    /// Status chip: { icon, text, color }, null for nodes which are not computed
+    /// Status chip: { icon, text, color }, null for nodes which are not computed or not started (NONE)
     readonly property var statusChip: {
         if (!node || !node.isComputableType)
             return null
         const status = node.globalStatus
-        // Compatibility nodes cannot be computed: only show a known past status
-        if (isCompatibilityNode && status === "NONE")
-            return null
         const colors = Colors.nodeStatusColors
         switch (status) {
-        case "NONE": return { "icon": MaterialIcons.radio_button_unchecked, "text": "Ready", "color": colors["NONE"] }
         case "SUBMITTED":
             if (node.isExternal)
                 return { "icon": MaterialIcons.cloud_upload, "text": "Submitted", "color": Colors.nodeStatusFarm }
@@ -121,10 +117,10 @@ Item {
 
     function statusTooltip() {
         /*
-         * Returns the status chip tooltip: the global status, plus the remaining time while running,
+         * Returns the status chip tooltip: the status word, plus the remaining time while running,
          * estimated from the mean duration of the finished chunks (omitted without finished chunks).
          */
-        let str = node.globalStatus + (node.isExternal ? " (external)" : "")
+        let str = statusChip.text + (node.isExternal ? " (external)" : "")
         const remaining = chunkStats.count - chunkStats.done
         if (node.globalStatus === "RUNNING" && chunkStats.done > 0 && remaining > 0)
             str += "<br>ETA ~" + formatDuration(chunkStats.elapsed / chunkStats.done * remaining)
@@ -506,41 +502,13 @@ Item {
                     RowLayout {
                         id: headerLayout
                         anchors.fill: parent
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
                         spacing: 4
-
-                        Loader {
-                            id: flowInputsLoader
-                            active: node && node.hasInternalAttribute("flowInputs")
-                            Layout.leftMargin: 1
-
-                            // flowInputs pin - left side of header
-                            sourceComponent: AttributePin {
-                                id: flowInputsHeaderPin
-                                attribute: node.internalAttribute("flowInputs")
-                                nodeItem: root
-                                compact: true
-                                displayOutputPinForInput: false
-                                Layout.alignment: Qt.AlignVCenter
-
-                                // globalX/Y: root is in the draggable coordinate space.
-                                // All intermediate items (mouseArea, nodeContent, body, header, headerLayout)
-                                // are at position (0,0), so only the Loader's position within the RowLayout matters.
-                                property real globalX: root.x + flowInputsLoader.x
-                                property real globalY: root.y + flowInputsLoader.y
-
-                                Component.onCompleted: attributePinCreated(attribute, flowInputsHeaderPin)
-                                onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
-                                onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
-                                Component.onDestruction: attributePinDeleted(attribute, flowInputsHeaderPin)
-
-                                onPressed: function(mouse) { root.pressed(mouse) }
-                                onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
-                            }
-                        }
 
                         // Category icon tile
                         Rectangle {
-                            Layout.leftMargin: flowInputsLoader.active ? 0 : 6
+                            id: categoryTile
                             Layout.preferredWidth: 18
                             Layout.preferredHeight: 18
                             radius: 4
@@ -554,15 +522,21 @@ Item {
                             }
                         }
 
-                        // Node Name
+                        // Node Name: has the layout priority, never narrower than 12 characters
                         Label {
                             id: nodeLabel
                             Layout.fillWidth: true
+                            Layout.minimumWidth: Math.min(implicitWidth, labelMetrics.averageCharacterWidth * 12)
                             text: root.nodeLabel
                             color: Colors.nodeText
                             elide: Text.ElideRight
                             font.pointSize: 10
                             font.bold: true
+
+                            FontMetrics {
+                                id: labelMetrics
+                                font: nodeLabel.font
+                            }
 
                             // Full name when elided
                             MouseArea {
@@ -578,6 +552,7 @@ Item {
 
                         // CompatibilityBadge icon for CompatibilityNodes
                         Loader {
+                            id: compatibilityBadgeLoader
                             active: root.isCompatibilityNode
                             visible: active
                             sourceComponent: CompatibilityBadge {
@@ -587,11 +562,14 @@ Item {
                             }
                         }
 
-                        // Status chip
+                        // Status chip: icon only when the full chip would leave less than 110 px to the label
                         Rectangle {
+                            id: statusChipItem
+                            readonly property real fullWidth: chipIcon.implicitWidth + chipRow.spacing + chipWord.implicitWidth + 8
+                            readonly property bool iconOnly: headerLayout.width - categoryTile.width - fullWidth - 2 * headerLayout.spacing
+                                                             - (compatibilityBadgeLoader.visible ? compatibilityBadgeLoader.width + headerLayout.spacing : 0) < 110
                             visible: root.statusChip !== null
-                            Layout.rightMargin: flowOutLoader.active ? 0 : 4
-                            Layout.preferredWidth: chipRow.implicitWidth + 8
+                            Layout.preferredWidth: iconOnly ? Layout.preferredHeight : fullWidth
                             Layout.preferredHeight: 18
                             radius: 9
                             color: visible ? Qt.rgba(root.statusChip.color.r, root.statusChip.color.g, root.statusChip.color.b, 0.14) : "transparent"
@@ -601,13 +579,16 @@ Item {
                                 anchors.centerIn: parent
                                 spacing: 3
                                 MaterialLabel {
+                                    id: chipIcon
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: root.statusChip ? root.statusChip.icon : ""
                                     font.pointSize: 8
                                     color: root.statusChip ? root.statusChip.color : "transparent"
                                 }
                                 Label {
+                                    id: chipWord
                                     anchors.verticalCenter: parent.verticalCenter
+                                    visible: !statusChipItem.iconOnly
                                     text: root.statusChip ? root.statusChip.text : ""
                                     font.pointSize: 8
                                     color: Colors.nodeText
@@ -624,34 +605,62 @@ Item {
                             ToolTip.text: visible ? root.statusTooltip() : ""
                             ToolTip.delay: 300
                         }
+                    }
 
-                        // flowOut pin - right side of header
-                        Loader {
-                            id: flowOutLoader
-                            active: node && node.hasInternalAttribute("flowOutput")
-                            Layout.rightMargin: 1
-                            Layout.alignment: Qt.AlignVCenter
+                    // Flow pins: overlays straddling the header borders, they take no room from the label
+                    Loader {
+                        id: flowInputsLoader
+                        active: node && node.hasInternalAttribute("flowInputs")
+                        x: -5  // half of the pin
+                        anchors.verticalCenter: parent.verticalCenter
 
-                            sourceComponent: AttributePin {
-                                id: flowOutHeaderPin
-                                attribute: node.internalAttribute("flowOutput")
-                                nodeItem: root
-                                compact: true
+                        // flowInputs pin - left side of header
+                        sourceComponent: AttributePin {
+                            id: flowInputsHeaderPin
+                            attribute: node.internalAttribute("flowInputs")
+                            nodeItem: root
+                            compact: true
+                            displayOutputPinForInput: false
 
-                                // globalX/Y: root is in the draggable coordinate space.
-                                // All intermediate items (mouseArea, nodeContent, body, header, headerLayout)
-                                // are at position (0,0), so only the Loader's position within the RowLayout matters.
-                                property real globalX: root.x + flowOutLoader.x
-                                property real globalY: root.y + flowOutLoader.y
+                            // globalX/Y: root is in the draggable coordinate space.
+                            // All intermediate items (mouseArea, nodeContent, body, header) are at position (0,0),
+                            // so only the Loader's position within the header matters.
+                            property real globalX: root.x + flowInputsLoader.x
+                            property real globalY: root.y + flowInputsLoader.y
 
-                                Component.onCompleted: attributePinCreated(attribute, flowOutHeaderPin)
-                                onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
-                                onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
-                                Component.onDestruction: attributePinDeleted(attribute, flowOutHeaderPin)
+                            Component.onCompleted: attributePinCreated(attribute, flowInputsHeaderPin)
+                            onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                            onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
+                            Component.onDestruction: attributePinDeleted(attribute, flowInputsHeaderPin)
 
-                                onPressed: function(mouse) { root.pressed(mouse) }
-                                onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
-                            }
+                            onPressed: function(mouse) { root.pressed(mouse) }
+                            onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
+                        }
+                    }
+
+                    // flowOut pin - right side of header
+                    Loader {
+                        id: flowOutLoader
+                        active: node && node.hasInternalAttribute("flowOutput")
+                        x: parent.width - width + 5  // half of the pin outside
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        sourceComponent: AttributePin {
+                            id: flowOutHeaderPin
+                            attribute: node.internalAttribute("flowOutput")
+                            nodeItem: root
+                            compact: true
+
+                            property real globalX: root.x + flowOutLoader.x
+                            property real globalY: root.y + flowOutLoader.y
+
+                            Component.onCompleted: attributePinCreated(attribute, flowOutHeaderPin)
+                            onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.connectionDragChanged(attribute, connectorType, dragItem) }
+                            onDropTargetChanged: function(attribute, reason) { root.dropTargetChanged(attribute, reason) }
+                            Component.onDestruction: attributePinDeleted(attribute, flowOutHeaderPin)
+
+                            onPressed: function(mouse) { root.pressed(mouse) }
+                            onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
                         }
                     }
                 }
@@ -934,9 +943,10 @@ Item {
                                                 inputParams.parentPinsUpdated()
                                             }
 
-                                            height: isFullyActive ? childrenRect.height : 0
+                                            // Row height, not childrenRect: the pin and the label are smaller than the row
+                                            height: isFullyActive ? rowHeight : 0
                                             Behavior on height { PropertyAnimation {easing.type: Easing.Linear} }
-                                            visible: (height == childrenRect.height)
+                                            visible: height > 0
 
                                             readOnly: Boolean(root.readOnly || modelData.isReadOnly)
                                             Component.onCompleted: attributePinCreated(attribute, inParamsPin)

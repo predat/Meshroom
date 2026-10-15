@@ -34,7 +34,7 @@ RowLayout {
     readonly property real pinSize: 10
     // Non-compact pins straddle the node border: shifted outward by half a pin plus the 1 px inset of the attributes
     readonly property real pinOffset: compact ? 0 : pinSize / 2 + 1
-    readonly property color typeColor: Colors.dataTypeColor(attribute ? attribute.dataType : "")
+    readonly property color typeColor: compact ? Colors.nodeTextSecondary : Colors.dataTypeColor(attribute ? attribute.dataType : "")
 
     // Connection capture zone around the pin center: 24 px wide, and vertically up to halfway to the neighbour
     // rows (adjacent rows, or across the outputs/inputs gap), extended to 12 px above the first row and below the last one
@@ -52,7 +52,10 @@ RowLayout {
     readonly property bool isDragSource: inputConnectMA.dragTriggered || outputConnectMA.dragTriggered
     readonly property bool guiding: !!nodeItem && !!nodeItem.compatibleAttributeUuids
     readonly property bool isCompatible: guiding && nodeItem.compatibleAttributeUuids.has(attribute.uuid)
-    opacity: guiding && !isCompatible && !isDragSource ? 0.35 : 1.0
+    // Header flow pins (compact) are hidden unless connected, the node hovered or a compatible drag target;
+    // their drag zone stays active while hidden
+    readonly property bool hiddenFlowPin: compact && !isConnected && !isDragSource && !isCompatible && !(nodeItem && nodeItem.hovered)
+    opacity: hiddenFlowPin ? 0 : guiding && !isCompatible && !isDragSource ? 0.35 : 1.0
 
     readonly property bool isList: attribute && attribute.type === "ListAttribute"
     readonly property bool isExpandable: attribute && attribute.isExpandable === true
@@ -192,6 +195,11 @@ RowLayout {
     spacing: 3
     height: rowHeight
 
+    HoverHandler {
+        id: rowHover
+        enabled: root.displayOutputPinForInput && !root.attribute.isOutput
+    }
+
     // Children connected under a collapsed group
     function hasConnectedChildren(output) {
         if (!root.isExpandable || root.expanded || root.isConnected || !attribute)
@@ -247,6 +255,7 @@ RowLayout {
                 color: root.typeColor
                 isList: root.isList
                 isGroup: root.isExpandable
+                isFlow: root.compact
                 filled: root.attribute.hasAnyInputLinks
                 halfFilled: root.hasConnectedChildren(false)
                 hovered: inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop)
@@ -468,6 +477,10 @@ RowLayout {
         id: outputAnchor
 
         visible: root.displayOutputPinForInput || root.attribute.isOutput
+        // Output pin of an input attribute: only shown when it carries an edge, the row is hovered or during a
+        // compatible drag; its drag zone stays active while hidden
+        opacity: root.attribute.isOutput || root.compact || root.attribute.hasAnyOutputLinks || rowHover.hovered || root.isCompatible ||
+                 outputConnectMA.containsMouse || outputConnectMA.drag.active ? 1 : 0
         width: root.pinSize
         height: width
         Layout.alignment: Qt.AlignVCenter
@@ -479,6 +492,7 @@ RowLayout {
             color: root.typeColor
             isList: root.isList
             isGroup: root.isExpandable
+            isFlow: root.compact
             filled: root.attribute.hasAnyOutputLinks
             halfFilled: root.hasConnectedChildren(true)
             hovered: root.attribute.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
