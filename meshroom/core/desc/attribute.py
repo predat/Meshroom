@@ -497,6 +497,8 @@ class File(Attribute):
         ".obj": "mesh", ".ply": "mesh", ".stl": "mesh", ".fbx": "mesh", ".gltf": "mesh", ".glb": "mesh", ".mtl": "mesh",
         ".exr": "image", ".jpg": "image", ".jpeg": "image", ".png": "image", ".tif": "image", ".tiff": "image",
     }
+    # Extensions of generic containers, only used when no keyword matched (e.g. "tracksFile.json" stays "tracks")
+    _DATA_TYPE_BY_GENERIC_EXTENSION = {".json": "text"}
     # Ordered (keyword, dataType) rules matched against the lowercase name, then the default value's file name
     _DATA_TYPE_BY_KEYWORD = (
         ("sfm", "sfmData"), ("viewsandposes", "sfmData"),
@@ -537,6 +539,8 @@ class File(Attribute):
             for keyword, dataType in self._DATA_TYPE_BY_KEYWORD:
                 if keyword in text:
                     return dataType
+        if extension in self._DATA_TYPE_BY_GENERIC_EXTENSION:
+            return self._DATA_TYPE_BY_GENERIC_EXTENSION[extension]
         if value.endswith("{nodeCacheFolder}") or self._name.lower().endswith("folder"):
             return "folder"
         return self._baseDataType

@@ -1085,6 +1085,7 @@ class Graph(BaseObject):
         dstAttr.valueChanged.emit()
         dstAttr.inputLinksChanged.emit()
         srcAttr.outputLinksChanged.emit()
+        dstAttr.notifyDataTypeChanged()
         return [edge.src, edge.dst], deletedEdge
 
     @changeTopology
@@ -1097,6 +1098,7 @@ class Graph(BaseObject):
         dstAttr.valueChanged.emit()
         dstAttr.inputLinksChanged.emit()
         edge.src.outputLinksChanged.emit()
+        dstAttr.notifyDataTypeChanged()
         return [edge.src, dstAttr]
 
     def getDepth(self, node, minimal=False):
