@@ -34,8 +34,9 @@ def effectiveDataType(attribute, _visited=None) -> str:
     Displayable data type of an attribute, shared by its pin, its edges and the connection checks.
 
     The explicit dataType of the description (dataType= on a File) wins; otherwise a linked input takes the
-    effective data type of its link source (recursively), and a list the one of its first linked element (its pin
-    carries the edges of its elements); otherwise the type derived from the description.
+    effective data type of its link source (recursively), and a list the common one of its linked elements, or the
+    generic type of its elements if they differ (its pin carries the edges of its elements); otherwise the type derived
+    from the description.
 
     Args:
         attribute: the attribute.
@@ -52,9 +53,12 @@ def effectiveDataType(attribute, _visited=None) -> str:
     if attribute.isLink:
         return effectiveDataType(attribute._getInputLink(), _visited)
     if isinstance(attribute, ListAttribute):
-        for element in attribute.value:
-            if element.isLink:
-                return effectiveDataType(element, _visited)
+        # One visited set per element: sibling elements may share an upstream source
+        linked = {effectiveDataType(element, set(_visited)) for element in attribute.value if element.isLink}
+        if len(linked) == 1:
+            return linked.pop()
+        if linked:
+            return attributeDesc.elementDesc._baseDataType
     return attributeDesc.dataType
 
 

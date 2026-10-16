@@ -159,7 +159,7 @@ def test_linkedInputsChainAndNotification():
 
 
 def test_listTakesLinkedElementDataType():
-    # The list pin carries the edges of its elements: it takes their source data type
+    # The list pin carries the edges of its elements: it takes their common source data type, the generic one if they differ
     with registeredNodeTypes([NodeWithDataTypes]):
         graph = Graph("")
         src = graph.addNewNode(NodeWithDataTypes.__name__)
@@ -172,6 +172,14 @@ def test_listTakesLinkedElementDataType():
         graph.addEdge(src.attribute("outputFolder"), folders.at(0))
         assert folders.dataType == folders.at(0).dataType == "folder"
         assert notified
+        # Same data type for all the linked elements: kept
+        folders.append("")
+        graph.addEdge(src.attribute("outputFolder"), folders.at(1))
+        assert folders.dataType == "folder"
+        # Different data types: the generic one
+        folders.append("")
+        graph.addEdge(src.attribute("output"), folders.at(2))
+        assert folders.dataType == "file"
 
 
 class FakeAttribute:
