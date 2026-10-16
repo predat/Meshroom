@@ -38,6 +38,8 @@ Where this map and the actual tree diverge, trust the tree — then update the m
 │   ├── ui/                     # User Interface layer (PySide6 / QML-based components)
 │   │   ├── qml/                # QML design layouts (GraphEditor, NodeEditor, 3D/2D Viewers, RTI Viewer)
 │   │   ├── components/         # Qt helper components exposed to QML (scene3D, scriptEditor, clipboard, ...)
+│   │   ├── fonts/              # Embedded Graph Editor fonts (IBM Plex Sans, JetBrains Mono; SIL OFL 1.1, see COPYING.md),
+│   │   │                       #   loaded by the GraphTheme singleton (qml/Utils/GraphTheme.qml) with its design tokens
 │   │   └── ...                 # Python backends (app.py, graph.py, commands.py, scene.py) binding core to Qt
 │   ├── env.py                  # EnvVar registry: MESHROOM_PLUGINS_PATH / NODES_PATH / PIPELINE_TEMPLATES_PATH, etc.
 │   └── multiview.py            # Image-extension lists & helpers for building multiview/photogrammetry pipelines
