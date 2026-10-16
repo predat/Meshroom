@@ -772,6 +772,8 @@ class Attribute(BaseObject):
     type = Property(str, lambda self: self._desc.type, constant=True)
     # The type of the elements of the attribute as a string.
     baseType = Property(str, lambda self: self._desc.type, constant=True)
+    # The displayable data type of the attribute (e.g. "sfmData", "image"), used to color it in the UI.
+    dataType = Property(str, lambda self: self._desc.dataType, constant=True)
     # Whether the attribute is a node input attribute.
     isInput = Property(bool, lambda self: not self._isOutput, constant=True)
     # Whether the attribute is a node output attribute.
