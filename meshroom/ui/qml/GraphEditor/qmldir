@@ -7,6 +7,7 @@ NodeChunks 1.0 NodeChunks.qml
 Edge 1.0 Edge.qml
 Backdrop 1.0 Backdrop.qml
 AttributePin 1.0 AttributePin.qml
+PinShape 1.0 PinShape.qml
 AttributeEditor 1.0 AttributeEditor.qml
 AttributeItemDelegate 1.0 AttributeItemDelegate.qml
 CompatibilityBadge 1.0 CompatibilityBadge.qml

@@ -27,8 +27,30 @@ RowLayout {
     readonly property point inputAnchorPos: Qt.point(inputAnchor.x + inputAnchor.width / 2,
                                                      inputAnchor.y + inputAnchor.height / 2)
 
-    readonly property point outputAnchorPos: Qt.point(outputAnchor.x + outputAnchor.width / 2,
+    readonly property point outputAnchorPos: Qt.point(outputAnchor.x + root.pinOffset + outputAnchor.width / 2,
                                                       outputAnchor.y + outputAnchor.height / 2)
+
+    // Pins are larger than the row: they overflow it without changing the layout
+    readonly property real rowHeight: 8
+    readonly property real pinSize: 10
+    // Non-compact pins straddle the node border: shifted outward by half a pin plus the 1 px inset of the attributes
+    readonly property real pinOffset: compact ? 0 : pinSize / 2 + 1
+    readonly property color typeColor: GraphTheme.dataTypeColor(attribute ? attribute.dataType : "")
+
+    // Connection capture zone around the pin center: 24 px wide, and vertically up to halfway to the neighbour
+    // rows (rows are 3 px apart), extended to 12 px above the first row and below the last one
+    readonly property real captureHalfWidth: 12
+    readonly property real relativeY: typeof globalY !== "undefined" && nodeItem ? globalY - nodeItem.y : -1
+    readonly property bool isFirstRow: !!nodeItem && Math.abs(relativeY - nodeItem.attributesTop) < 1
+    readonly property bool isLastRow: !!nodeItem && relativeY + rowHeight > nodeItem.attributesBottom - 1
+    readonly property real captureTop: isFirstRow ? captureHalfWidth : rowHeight / 2 + 1.5
+    readonly property real captureBottom: isLastRow ? captureHalfWidth : rowHeight / 2 + 1.5
+
+    // Connection guide, set by the Graph Editor while an edge is being dragged
+    readonly property bool isDragSource: inputConnectMA.dragTriggered || outputConnectMA.dragTriggered
+    readonly property bool guiding: !!nodeItem && !!nodeItem.compatibleAttributeUuids
+    readonly property bool isCompatible: guiding && nodeItem.compatibleAttributeUuids.has(attribute.uuid)
+    opacity: guiding && !isCompatible && !isDragSource ? 0.35 : 1.0
 
     readonly property bool isList: attribute && attribute.type === "ListAttribute"
     readonly property bool isExpandable: attribute && attribute.isExpandable === true
@@ -42,6 +64,19 @@ RowLayout {
     signal pressed(var mouse)
     signal edgeAboutToBeRemoved(var input)
     signal clicked()
+    /// An edge started (attribute set) or stopped (attribute null) being dragged from this pin
+    signal connectionDragChanged(var attribute, string connectorType, var dragItem)
+    /// The dragged edge entered (attribute set) or left (attribute null) this pin, with the refusal reason if any
+    signal dropTargetChanged(var attribute, string reason)
+
+    onStateChanged: {
+        if (state === "DraggingInput")
+            connectionDragChanged(attribute, "input", inputDragTarget)
+        else if (state === "DraggingOutput")
+            connectionDragChanged(attribute, "output", outputDragTarget)
+        else
+            connectionDragChanged(null, "", null)
+    }
 
     Component {
         id: removeAnySetAttributeMenuComp
@@ -153,21 +188,24 @@ RowLayout {
     objectName: attribute ? attribute.name + "." : ""
     layoutDirection: Qt.LeftToRight
     spacing: 3
-    height: attribute && attribute.isOutput ? outputAnchor.height : inputAnchor.height
+    height: rowHeight
 
-    function getCurrentAttributePinColor(hasChildrenConnected) {
-        if (root.isDynamic) {
-            return "transparent"
+    // Children connected under a collapsed group
+    function hasConnectedChildren(output) {
+        if (!root.isExpandable || root.expanded || root.isConnected || !attribute)
+            return false
+        for (var i = 0; i < attribute.flatStaticChildren.length; ++i) {
+            const child = attribute.flatStaticChildren[i]
+            if (output ? child.hasAnyOutputLinks : child.hasAnyInputLinks)
+                return true
         }
-        if (hasChildrenConnected) {
-            return Colors.sysPalette.iconText
-        }
-        return Colors.sysPalette.mid
+        return false
     }
 
     ToolTip {
         text: attribute.fullName + ": " + attribute.type
-        visible: nameLabel.hovered
+        // Hidden while dragging: the Graph Editor displays the connection info
+        visible: nameLabel.hovered && !root.isDragSource
         delay: 500
 
         x: nameLabel.x
@@ -192,47 +230,21 @@ RowLayout {
         Layout.fillWidth: !root.compact
         Layout.fillHeight: true
 
-        Rectangle {
+        PinShape {
             id: inputAnchor
             visible: !root.attribute.isOutput
 
-            width: 8
-            height: width
-            radius: root.isList ? 0 : width / 2
-            Layout.alignment: Qt.AlignVCenter
-
-            border.color: getCurrentAttributePinColor(innerInputAnchor.hasConnectedChildren)
-            color: Colors.sysPalette.base
-
-            Rectangle {
-                id: innerInputAnchor
-                property bool linkEnabled: true
-                property bool hasConnectedChildren: {
-                    if (!isExpandable || root.isConnected || !attribute)
-                        return false
-                    for (var i = 0; i < attribute.flatStaticChildren.length; ++i) {
-                        if (attribute.flatStaticChildren[i].hasAnyInputLinks) {
-                            return true
-                        }
-                    }
-                    return false
-                }
-                visible: inputConnectMA.containsMouse || childrenRepeater.count > 0 || hasConnectedChildren ||
-                        root.isDynamic ||
-                        (root.attribute && root.attribute.isLink && linkEnabled) || inputConnectMA.drag.active || inputDropArea.containsDrag
-                radius: root.isList ? 0 : 2
-                anchors.fill: parent
-                anchors.margins: 2
-                color: {
-                    if (inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop))
-                        return Colors.sysPalette.highlight
-                    if (hasConnectedChildren)
-                        return Colors.sysPalette.mid
-                    if (root.isDynamic)
-                        return "transparent"
-                    return Colors.sysPalette.text
-                }
-            }
+            x: -root.pinOffset
+            y: (root.rowHeight - height) / 2
+            size: root.pinSize
+            shapeVisible: !root.isDynamic
+            pinColor: root.typeColor
+            isList: root.isList
+            isGroup: root.isExpandable
+            filled: root.attribute.hasAnyInputLinks
+            halfFilled: root.hasConnectedChildren(false)
+            hovered: inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop)
+            compatible: root.isCompatible
 
             DropArea {
                 id: inputDropArea
@@ -241,27 +253,25 @@ RowLayout {
 
                 // Add negative margins for DropArea to make the connection zone easier to reach
                 anchors.fill: parent
-                anchors.margins: -2
+                anchors.leftMargin: root.compact ? -2 : -(root.captureHalfWidth - root.pinSize / 2)
+                anchors.topMargin: root.compact ? -2 : -(root.captureTop - root.pinSize / 2)
+                anchors.bottomMargin: root.compact ? -2 : -(root.captureBottom - root.pinSize / 2)
                 // Add horizontal negative margins according to the current layout
                 anchors.rightMargin: -root.width * 0.3
 
                 keys: [inputDragTarget.objectName]
                 onEntered: function(drag) {
-                    var validIncomingConnection = inputDragTarget.attribute.validateIncomingConnection(drag.source.attribute)
-                    // Check if attributes are compatible to create a valid connection
-                    if (root.readOnly                                            // Cannot connect on a read-only attribute
-                        || drag.source.objectName != inputDragTarget.objectName  // Not an edge connector
-                        || !validIncomingConnection                              // Connection is not allowed
-                        || drag.source.nodeItem === inputDragTarget.nodeItem     // Connection between attributes of the same node
-                        || drag.source.isList && childrenRepeater.count          // Source/target are lists but target already has children
-                        || drag.source.connectorType === "input"                 // Refuse to connect an "input pin" on another one (input attr can be connected to input attr, but not the graphical pin)
-                    ) {
+                    // Same rules as the connection guide computed by the Graph Editor
+                    const reason = drag.source.objectName != inputDragTarget.objectName ? "not a connector" :
+                                   _currentScene.connectionError(drag.source.attribute, drag.source.connectorType, inputDragTarget.attribute, "input")
+                    if (reason) {
                         // Refuse attributes connection
                         drag.accepted = false
                     } else if (inputDragTarget.attribute.isLink) {  // Already connected attribute
                         root.edgeAboutToBeRemoved(inputDragTarget.attribute)
                     }
                     inputDropArea.acceptableDrop = drag.accepted
+                    root.dropTargetChanged(inputDragTarget.attribute, reason)
                 }
 
                 onExited: {
@@ -270,10 +280,12 @@ RowLayout {
                     }
                     acceptableDrop = false
                     drag.source.dropAccepted = false
+                    root.dropTargetChanged(null, "")
                 }
 
                 onDropped: function(drop) {
                     root.edgeAboutToBeRemoved(undefined)
+                    root.dropTargetChanged(null, "")
                     _currentScene.addEdge(drag.source.attribute, inputDragTarget.attribute)
                 }
             }
@@ -309,9 +321,10 @@ RowLayout {
                 hoverEnabled: root.visible
 
                 // Use the same negative margins as DropArea to ease pin selection
-                anchors.margins: inputDropArea.anchors.margins
                 anchors.leftMargin: inputDropArea.anchors.leftMargin
                 anchors.rightMargin: inputDropArea.anchors.rightMargin
+                anchors.topMargin: inputDropArea.anchors.topMargin
+                anchors.bottomMargin: inputDropArea.anchors.bottomMargin
 
                 property bool dragTriggered: false  // An edge is being dragged from the input connector
                 property bool isPressed: false  // The mouse has been pressed but not released yet
@@ -351,7 +364,7 @@ RowLayout {
                 point1y: inputDragTarget.y + inputDragTarget.height / 2
                 point2x: parent.width / 2
                 point2y: parent.width / 2
-                color: palette.highlight
+                color: root.typeColor
                 thickness: outputDragTarget.dropAccepted ? 2 : 1
             }
         }
@@ -444,45 +457,23 @@ RowLayout {
         }
     }
 
-    Rectangle {
+    PinShape {
         id: outputAnchor
 
         visible: root.displayOutputPinForInput || root.attribute.isOutput
-        width: 8
-        height: width
-        radius: root.isList ? 0 : width / 2
-
+        size: root.pinSize
         Layout.alignment: Qt.AlignVCenter
+        // Straddle the node border without changing the layout
+        transform: Translate { x: root.pinOffset }
 
-        border.color: getCurrentAttributePinColor(innerOutputAnchor.hasConnectedChildren)
-        color: Colors.sysPalette.base
-
-        Rectangle {
-            id: innerOutputAnchor
-            property bool linkEnabled: true
-            property bool hasConnectedChildren: {
-                if (!root.isExpandable || root.isConnected)
-                    return false
-                for (var i = 0; i < attribute.flatStaticChildren.length; ++i) {
-                    if (attribute.flatStaticChildren[i].hasAnyOutputLinks) {
-                        return true
-                    }
-                }
-                return false
-            }
-            visible: (root.attribute.hasAnyOutputLinks && linkEnabled) || outputConnectMA.containsMouse || outputConnectMA.drag.active || outputDropArea.containsDrag || hasConnectedChildren
-            radius: root.isList ? 0 : 2
-            anchors.fill: parent
-            anchors.margins: 2
-            color: {
-                if (root.attribute.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
-                                               (outputDropArea.containsDrag && outputDropArea.acceptableDrop)))
-                    return Colors.sysPalette.highlight
-                if (hasConnectedChildren)
-                    return Colors.sysPalette.mid
-                return Colors.sysPalette.text
-            }
-        }
+        pinColor: root.typeColor
+        isList: root.isList
+        isGroup: root.isExpandable
+        filled: root.attribute.hasAnyOutputLinks
+        halfFilled: root.hasConnectedChildren(true)
+        hovered: root.attribute.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||
+                                            (outputDropArea.containsDrag && outputDropArea.acceptableDrop))
+        compatible: root.isCompatible
 
         DropArea {
             id: outputDropArea
@@ -491,35 +482,35 @@ RowLayout {
 
             // Add negative margins for DropArea to make the connection zone easier to reach
             anchors.fill: parent
-            anchors.margins: -2
+            anchors.rightMargin: root.compact ? -2 : -(root.captureHalfWidth - root.pinSize / 2)
+            anchors.topMargin: root.compact ? -2 : -(root.captureTop - root.pinSize / 2)
+            anchors.bottomMargin: root.compact ? -2 : -(root.captureBottom - root.pinSize / 2)
             // Add horizontal negative margins according to the current layout
             anchors.leftMargin: -root.width * 0.2
 
             keys: [outputDragTarget.objectName]
             onEntered: function(drag) {
-                var validIncomingConnection = outputDragTarget.attribute.validateIncomingConnection(drag.source.attribute)
-                // Check if attributes are compatible to create a valid connection
-                if (drag.source.objectName != outputDragTarget.objectName   // Not an edge connector
-                    || !validIncomingConnection                             // Connection is not allowed
-                    || drag.source.nodeItem === outputDragTarget.nodeItem   // Connection between attributes of the same node
-                    || (!drag.source.isList && outputDragTarget.isList)     // Connection between a list and a simple attribute
-                    || (drag.source.isList && childrenRepeater.count)       // Source/target are lists but target already has children
-                    || drag.source.connectorType === "output"               // Refuse to connect an output pin on another one
-                   ) {
+                // Same rules as the connection guide computed by the Graph Editor
+                const reason = drag.source.objectName != outputDragTarget.objectName ? "not a connector" :
+                               _currentScene.connectionError(drag.source.attribute, drag.source.connectorType, outputDragTarget.attribute, "output")
+                if (reason) {
                     // Refuse attributes connection
                     drag.accepted = false
                 } else if (drag.source.attribute.isLink) {  // Already connected attribute
                     root.edgeAboutToBeRemoved(drag.source.attribute)
                 }
                 outputDropArea.acceptableDrop = drag.accepted
+                root.dropTargetChanged(outputDragTarget.attribute, reason)
             }
             onExited: {
                 root.edgeAboutToBeRemoved(undefined)
                 acceptableDrop = false
+                root.dropTargetChanged(null, "")
             }
 
             onDropped: function(drop) {
                 root.edgeAboutToBeRemoved(undefined)
+                root.dropTargetChanged(null, "")
                 _currentScene.addEdge(outputDragTarget.attribute, drag.source.attribute)
             }
         }
@@ -552,9 +543,10 @@ RowLayout {
             drag.smoothed: false
             anchors.fill: parent
             // Use the same negative margins as DropArea to ease pin selection
-            anchors.margins: outputDropArea.anchors.margins
             anchors.leftMargin: outputDropArea.anchors.leftMargin
             anchors.rightMargin: outputDropArea.anchors.rightMargin
+            anchors.topMargin: outputDropArea.anchors.topMargin
+            anchors.bottomMargin: outputDropArea.anchors.bottomMargin
 
             hoverEnabled: root.visible
 
@@ -596,7 +588,7 @@ RowLayout {
             point1y: parent.width / 2
             point2x: outputDragTarget.x + outputDragTarget.width / 2
             point2y: outputDragTarget.y + outputDragTarget.height / 2
-            color: palette.highlight
+            color: root.typeColor
             thickness: outputDragTarget.dropAccepted ? 2 : 1
         }
     }

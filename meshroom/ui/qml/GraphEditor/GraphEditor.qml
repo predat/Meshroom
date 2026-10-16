@@ -49,6 +49,33 @@ Item {
         function onSelectionChanged() { root.updateActiveNodeNames() }
     }
 
+    // Edge being dragged from a pin (null otherwise), the item following its tip,
+    // and the attributes/nodes it can be connected to, computed once per drag
+    property var draggedAttribute: null
+    property string draggedConnectorType: ""
+    property var draggedItem: null
+    property var compatibleAttributeUuids: null
+    property var compatibleNodeNames: null
+    // Pin under the dragged edge, and the reason why the connection is refused ("" if valid)
+    property var dropTargetAttribute: null
+    property string dropTargetReason: ""
+
+    function setConnectionDrag(attribute, connectorType, dragItem) {
+        // The compatible sets are only set while draggedAttribute is: bindings may rely on it
+        compatibleAttributeUuids = null
+        compatibleNodeNames = null
+        dropTargetAttribute = null
+        dropTargetReason = ""
+        draggedConnectorType = connectorType
+        draggedItem = dragItem
+        draggedAttribute = attribute
+        if (attribute) {
+            const targets = uigraph.connectionTargets(attribute, connectorType)
+            compatibleAttributeUuids = new Set(targets.attributes)
+            compatibleNodeNames = new Set(targets.nodes)
+        }
+    }
+
     // Signals
     signal workspaceMoved()
     signal workspaceClicked()
@@ -628,7 +655,8 @@ Item {
                     iteration: forLoop ? loopSource.value.indexOf(edge.src) : 0
                     color: edge.dst === root.edgeAboutToBeRemoved ? Colors.red : GraphTheme.dataTypeColor(edge.src.dataType)
                     thickness: forLoop ? 5 : (inFocus || incident) ? 3 : 2
-                    opacity: root.activeNodeNames.size === 0 || incident ? 1.0 : 0.3
+                    // Contextual dimming is suspended while an edge is being dragged
+                    opacity: root.draggedAttribute || root.activeNodeNames.size === 0 || incident ? 1.0 : 0.3
                     dataState: {
                         const srcStatus = edge.src.node.globalStatus
                         if (srcStatus === "SUCCESS" && edge.dst.node.globalStatus === "RUNNING")
@@ -1038,6 +1066,15 @@ Item {
                             onAttributePinCreated: function(attribute, pin) { registerAttributePin(attribute, pin) }
                             onAttributePinDeleted: function(attribute, pin) { unregisterAttributePin(attribute, pin) }
 
+                            // Connection guide: dim the nodes without any compatible pin (except the dragged edge's node)
+                            compatibleAttributeUuids: root.compatibleAttributeUuids
+                            opacity: root.compatibleNodeNames && !root.compatibleNodeNames.has(node.name) && root.draggedAttribute.node !== node ? 0.35 : 1.0
+                            onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.setConnectionDrag(attribute, connectorType, dragItem) }
+                            onDropTargetChanged: function(attribute, reason) {
+                                root.dropTargetAttribute = attribute
+                                root.dropTargetReason = reason
+                            }
+
                             onShaked: {
                                 uigraph.disconnectSelectedNodes()
                             }
@@ -1333,6 +1370,45 @@ Item {
             container: draggable
             onDelegateSelectionEnded: function(selectedIndices, modifiers) {
                 uigraph.deleteEdgesByIndices(selectedIndices)
+            }
+        }
+
+        // Info about the edge being dragged, following its tip
+        Rectangle {
+            id: connectionDragInfo
+            visible: root.draggedItem !== null
+
+            readonly property point tip: {
+                if (!root.draggedItem)
+                    return Qt.point(0, 0)
+                // mapToItem() is not reactive: depend explicitly on the dragged item position
+                root.draggedItem.x + root.draggedItem.y
+                return root.draggedItem.mapToItem(parent, root.draggedItem.width / 2, root.draggedItem.height / 2)
+            }
+            readonly property bool onTarget: root.dropTargetAttribute !== null
+
+            x: tip.x + 14
+            y: tip.y + 14
+            width: dragInfoLabel.implicitWidth + 12
+            height: dragInfoLabel.implicitHeight + 6
+            radius: 3
+            color: activePalette.window
+            border.color: activePalette.mid
+
+            Label {
+                id: dragInfoLabel
+                anchors.centerIn: parent
+                font.pointSize: 8
+                color: !connectionDragInfo.onTarget ? activePalette.text : root.dropTargetReason ? Colors.red : Colors.green
+                text: {
+                    if (!root.draggedAttribute)
+                        return ""
+                    if (!connectionDragInfo.onTarget)
+                        return root.draggedAttribute.label + " \u00B7 " + root.draggedAttribute.dataType
+                    if (root.dropTargetReason)
+                        return "\u2715 " + root.dropTargetReason
+                    return root.draggedAttribute.dataType + " \u2192 " + root.dropTargetAttribute.dataType + " \u2713"
+                }
             }
         }
 
