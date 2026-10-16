@@ -289,7 +289,7 @@ Popup {
 
                         MaterialLabel {
                             anchors.centerIn: parent
-                            text: MaterialIcons[rowItem.item.icon]
+                            text: MaterialIcons[rowItem.item.icon] || ""
                             color: rowItem.item.color
                             font.pointSize: 8
                         }

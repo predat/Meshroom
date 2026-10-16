@@ -21,6 +21,8 @@ Settings {
     // Dropping a node (moved or created from the menu) on a compatible edge inserts it
     property bool insertOnEdge: true
     property bool showMinimap: true
+    // Tab and right-click open the command palette (Ctrl+K always does), or else the former node creation menu
+    property bool commandPalette: true
     // Command palette recent items, as a JSON list of "node:<type>" / "pipeline:<name>" (most recent first)
     property string paletteRecents: "[]"
     // Collapsed attribute groups of the Node Editor, as a JSON map {nodeType: {group: collapsed}}

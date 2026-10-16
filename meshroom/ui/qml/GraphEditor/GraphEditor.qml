@@ -463,7 +463,12 @@ Item {
             uigraph.alignHorizontally()
         } else if (event.key === Qt.Key_Tab) {
             event.accepted = true
-            openCommandPalette(false)
+            if (GraphEditorSettings.commandPalette) {
+                openCommandPalette(false)
+            } else if (mouseArea.containsMouse) {
+                newNodeMenu.spawnPosition = mouseArea.mapToItem(draggable, mouseArea.mouseX, mouseArea.mouseY)
+                newNodeMenu.popup()
+            }
         } else if (event.key === Qt.Key_K) {
             if (!event.isAutoRepeat)
                 knifeKeyHeld = true
@@ -542,9 +547,174 @@ Item {
 
         onClicked: function(mouse) {
             if (mouse.button == Qt.RightButton) {
-                // Create mode: the node is created at the click position
-                commandPalette.spawnPosition = mouseArea.mapToItem(draggable, mouse.x, mouse.y)
-                commandPalette.openPalette(true)
+                // Store mouse click position in 'draggable' coordinates as new node spawn position
+                const spawnPosition = mouseArea.mapToItem(draggable, mouse.x, mouse.y)
+                if (GraphEditorSettings.commandPalette) {
+                    // Create mode: the node is created at the click position
+                    commandPalette.spawnPosition = spawnPosition
+                    commandPalette.openPalette(true)
+                } else {
+                    newNodeMenu.spawnPosition = spawnPosition
+                    newNodeMenu.popup()
+                }
+            }
+        }
+
+        // Contextual Menu for creating new nodes
+        // TODO: add filtering + validate on 'Enter'
+        Menu {
+            id: newNodeMenu
+            property point spawnPosition
+            property variant menuKeys: Object.keys(root.nodeTypesModel).concat(Object.values(MeshroomApp.pipelineTemplateNames))
+            height: searchBar.height + nodeMenuRepeater.height + instantiator.height
+
+            function createNode(nodeType) {
+                // "nodeType" might be a pipeline (artificially added in the "Pipelines" category) instead of a node
+                // If it is not a pipeline to import, then it must be a node
+                if (!importPipeline(nodeType)) {
+                    // Add node via the proper command in uigraph
+                    // Creation and insertion on the edge under the spawn position: a single undo step
+                    uigraph.beginModification("Create " + nodeType)
+                    var node = uigraph.addNewNode(nodeType, spawnPosition)
+                    root.insertCreatedNode(node, spawnPosition)
+                    uigraph.endModification()
+                    uigraph.selectedNode = node
+                    uigraph.selectNodes([node])
+                }
+                close()
+            }
+
+            function importPipeline(pipeline) {
+                if (MeshroomApp.pipelineTemplateNames.includes(pipeline)) {
+                    var url = MeshroomApp.pipelineTemplateFiles[MeshroomApp.pipelineTemplateNames.indexOf(pipeline)]["path"]
+                    var nodes = uigraph.importProject(Filepath.stringToUrl(url), spawnPosition)
+                    uigraph.selectedNode = nodes[0]
+                    uigraph.selectNodes(nodes)
+                    return true
+                }
+                return false
+            }
+
+            function parseCategories() {
+                // Organize nodes based on their category
+                // {"category1": ["node1", "node2"], "category2": ["node3", "node4"]}
+                let categories = {}
+                for (const [name, data] of Object.entries(root.nodeTypesModel)) {
+                    let category = data["category"]
+                    if (categories[category] === undefined) {
+                        categories[category] = []
+                    }
+                    categories[category].push(name)
+                }
+
+                // Add a "Pipelines" category, filled with the list of templates to create pipelines from the menu
+                if (MeshroomApp.pipelineTemplateNames.length > 0) {
+                    categories["Pipelines"] = MeshroomApp.pipelineTemplateNames
+                }
+
+                return categories
+            }
+
+            onVisibleChanged: {
+                searchBar.clear()
+                if (visible) {
+                    // When menu is shown, give focus to the TextField filter
+                    searchBar.forceActiveFocus()
+                }
+            }
+
+            SearchBar {
+                id: searchBar
+                width: parent.width
+            }
+
+            // menuItemDelegate is wrapped in a component so it can be used in both the search bar and sub-menus
+            Component {
+                id: menuItemDelegateComponent
+                MenuItem {
+                    id: menuItemDelegate
+                    font.pointSize: 8
+                    padding: 3
+
+                    // Hide items that does not match the filter text
+                    visible: modelData.toLowerCase().indexOf(searchBar.text.toLowerCase()) > -1
+                    text: modelData
+                    // Forward key events to the search bar to continue typing seamlessly
+                    // even if this delegate took the activeFocus due to mouse hovering
+                    Keys.forwardTo: [searchBar.textField]
+                    Keys.onPressed: function(event) {
+                        event.accepted = false
+                        switch (event.key) {
+                            case Qt.Key_Return:
+                            case Qt.Key_Enter:
+                                // Create node on validation (Enter/Return keys)
+                                newNodeMenu.createNode(modelData)
+                                event.accepted = true
+                                break
+                            case Qt.Key_Up:
+                            case Qt.Key_Down:
+                            case Qt.Key_Left:
+                            case Qt.Key_Right:
+                                break  // Ignore if arrow key was pressed to let the menu be controlled
+                            default:
+                                searchBar.forceActiveFocus()
+                        }
+                    }
+                    // Set the priority ordering of the keys to be Item's own Key Handling > ForwardTo
+                    Keys.priority: Keys.AfterItem
+                    // Create node on mouse click
+                    onClicked: newNodeMenu.createNode(modelData)
+
+                    states: [
+                        State {
+                            // Additional property setting when the MenuItem is not visible
+                            when: !visible
+                            name: "invisible"
+                            PropertyChanges {
+                                target: menuItemDelegate
+                                height: 0  // Make sure the item is no visible by setting height to 0
+                                focusPolicy: Qt.NoFocus  // Don't grab focus when not visible
+                            }
+                        }
+                    ]
+                }
+            }
+
+            Repeater {
+                id: nodeMenuRepeater
+                model: searchBar.text !== "" ? Object.values(newNodeMenu.menuKeys) : undefined
+
+                // Create Menu items from available items
+                delegate: menuItemDelegateComponent
+            }
+
+            // Dynamically add the menu categories
+            Instantiator {
+                id: instantiator
+                model: (searchBar.text === "") ? Object.keys(newNodeMenu.parseCategories()).sort() : undefined
+                onObjectAdded: function(index, object) {
+                    // Add sub-menu under the search bar
+                    newNodeMenu.insertMenu(index + 1, object)
+                }
+                onObjectRemoved: function(index, object) {
+                    newNodeMenu.removeMenu(object)
+                }
+
+                delegate: Menu {
+                    title: modelData
+                    id: newNodeSubMenu
+
+                    Instantiator {
+                        model: newNodeMenu.visible ? newNodeMenu.parseCategories()[modelData] : undefined
+                        onObjectAdded: function(index, object) {
+                            newNodeSubMenu.insertItem(index, object)
+                        }
+                        onObjectRemoved: function(index, object) {
+                            newNodeSubMenu.removeItem(object)
+                        }
+                        delegate: menuItemDelegateComponent
+                    }
+                }
             }
         }
 

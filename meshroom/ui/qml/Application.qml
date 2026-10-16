@@ -965,6 +965,19 @@ Page {
                     }
 
                     MenuItem {
+                        text: "Command Palette"
+                        checkable: true
+                        checked: GraphEditorSettings.commandPalette
+                        onToggled: GraphEditorSettings.commandPalette = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Tab and right-click on the Graph Editor open the command palette (Ctrl+K always does), or else the node creation menu"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
+                    MenuItem {
                         text: "Minimap"
                         checkable: true
                         checked: GraphEditorSettings.showMinimap
