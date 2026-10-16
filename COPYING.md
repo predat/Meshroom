@@ -10,6 +10,16 @@ Meshroom is licensed under the [MPL2 license](LICENSE-MPL2.md).
    Distributed under the [MPL2 license](https://opensource.org/licenses/MPL-2.0).
    See [COPYING](https://github.com/alicevision/AliceVision/blob/develop/COPYING.md) for full third parties licenses.
 
+ * __IBM Plex Sans__  
+   [https://github.com/IBM/plex](https://github.com/IBM/plex)  
+   Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex".  
+   Distributed under the [SIL Open Font License 1.1](meshroom/ui/fonts/OFL-IBMPlex.txt).
+
+ * __JetBrains Mono__  
+   [https://github.com/JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono)  
+   Copyright (c) 2020 The JetBrains Mono Project Authors.  
+   Distributed under the [SIL Open Font License 1.1](meshroom/ui/fonts/OFL-JetBrainsMono.txt).
+
  * __Python__  
    [https://www.python.org](https://www.python.org)  
    Copyright (c) 2001-2018 Python Software Foundation.  
