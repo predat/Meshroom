@@ -20,6 +20,16 @@ def _boundaryBonus(text, i):
     return 0
 
 
+def _isSubsequence(q, t):
+    """ Whether the characters of q appear in t, in order. """
+    position = -1
+    for char in q:
+        position = t.find(char, position + 1)
+        if position < 0:
+            return False
+    return True
+
+
 def fuzzyMatch(query, text):
     """
     Match the characters of query, in order and case-insensitively, against text.
@@ -37,12 +47,8 @@ def fuzzyMatch(query, text):
     if not query:
         return 0, []
     q, t = query.lower(), text.lower()
-    # Subsequence check
-    position = -1
-    for char in q:
-        position = t.find(char, position + 1)
-        if position < 0:
-            return None
+    if not _isSubsequence(q, t):
+        return None
 
     bonuses = [_boundaryBonus(text, i) for i in range(len(text))]
     NONE = float("-inf")
