@@ -249,6 +249,13 @@ Item {
         return str
     }
 
+    /// Whether an attribute, or one of the children of a group, is connected: its pin is shown even with the params collapsed
+    function isConnected(attribute) {
+        if (attribute.hasAnyInputLinks || attribute.hasAnyOutputLinks)
+            return true
+        return attribute.type === "GroupAttribute" && attribute.flatStaticChildren.some(child => child.hasAnyInputLinks || child.hasAnyOutputLinks)
+    }
+
     function updateChildPin(attribute, parentPins, pin) {
         /*
          * Update the pin of a child attribute: if the attribute is enabled and its parent is
@@ -257,12 +264,14 @@ Item {
          * If the current pin is also a GroupAttribute and is expanded while its newly "visible" state
          * is false, it is reset.
          */
-        if (Boolean(attribute.enabled)) {
+        const connected = isConnected(attribute)
+        // A connected attribute keeps its pin, even disabled: its edges are anchored on it
+        if (Boolean(attribute.enabled) || connected) {
             // If the parent is a GroupAttribute, use the status of the parent's pin to determine visibility
             // UNLESS the child attribute is already connected with a visible edge
             if (attribute.root && attribute.root.isExpandable) {
 
-                var visible = Boolean(parentPins.get(attribute.root.fullName))
+                var visible = Boolean(parentPins.get(attribute.root.fullName)) || connected
                 if (!visible && parentPins.has(attribute.fullName) && parentPins.get(attribute.fullName) === true) {
                     parentPins.set(attribute.fullName, false)
                     attribute.expanded = false
@@ -914,20 +923,18 @@ Item {
 
                                         active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible
                                         visible: {
-                                            if (Boolean(modelData.enabled || modelData.hasAnyOutputLinks || modelData.hasAnyInputLinks)) {
+                                            if (Boolean(modelData.enabled) || root.isConnected(modelData)) {
                                                 if (modelData.root && modelData.root.isExpandable) {
                                                     return Boolean(inputParams.parentPins.get(modelData.root.fullName) ||
-                                                                   modelData.hasAnyOutputLinks ||
-                                                                   modelData.hasAnyInputLinks)
+                                                                   root.isConnected(modelData))
                                                 }
                                                 return true
                                             }
                                             return false
                                         }
 
-                                        property bool isFullyActive: Boolean(m.displayParams ||
-                                                                             modelData.hasAnyInputLinks ||
-                                                                             modelData.hasAnyOutputLinks)
+                                        // Connected parameters (or groups with a connected child) stay shown with the params collapsed
+                                        property bool isFullyActive: Boolean(m.displayParams || root.isConnected(modelData))
                                         width: parent.width
 
                                         Connections {
