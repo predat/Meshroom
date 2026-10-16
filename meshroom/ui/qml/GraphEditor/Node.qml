@@ -49,8 +49,8 @@ Item {
     readonly property real attributesGapBottom: attributesGap.visible ? attributesGapTop + attributesGap.height : -1
 
     /// Icon tile: always the hue of the node type category (the user color only goes to the header strip)
-    readonly property var categoryStyle: Colors.categoryStyle(node && _nodeTypes[node.nodeType] ? _nodeTypes[node.nodeType].category : "")
-    readonly property color tileTint: Colors.tokenColor(categoryStyle.color)
+    readonly property var categoryStyle: GraphTheme.categoryStyle(node && _nodeTypes[node.nodeType] ? _nodeTypes[node.nodeType].category : "")
+    readonly property color tileTint: GraphTheme.tokenColor(categoryStyle.color)
 
     /// Finished chunks, total chunks and the sum of the finished chunks durations
     readonly property var chunkStats: {
@@ -73,16 +73,16 @@ Item {
         if (!node || !node.isComputableType)
             return null
         const status = node.globalStatus
-        const colors = Colors.nodeStatusColors
+        const colors = GraphTheme.nodeStatusColors
         switch (status) {
         case "SUBMITTED":
             if (node.isExternal)
-                return { "icon": MaterialIcons.cloud_upload, "text": "Submitted", "color": Colors.nodeStatusFarm }
+                return { "icon": MaterialIcons.cloud_upload, "text": "Submitted", "color": GraphTheme.nodeStatusFarm }
             return { "icon": MaterialIcons.schedule, "text": "Queued", "color": colors["SUBMITTED"] }
         case "RUNNING": {
             const percent = chunkStats.count > 0 ? Math.round(100 * chunkStats.done / chunkStats.count) : 0
             return { "icon": node.isExternal ? MaterialIcons.cloud : MaterialIcons.play_circle, "text": percent + " %",
-                     "color": node.isExternal ? Colors.nodeStatusFarm : colors["RUNNING"] }
+                     "color": node.isExternal ? GraphTheme.nodeStatusFarm : colors["RUNNING"] }
         }
         case "SUCCESS": return { "icon": MaterialIcons.check, "text": "Done", "color": colors["SUCCESS"] }
         case "ERROR": return { "icon": MaterialIcons.close, "text": "Error", "color": colors["ERROR"] }
@@ -478,7 +478,7 @@ Item {
             color: "transparent"
             // Constant on screen in the overview
             border.width: root.lod === 2 ? 2 / Math.max(root.zoom, 0.2) : 2
-            border.color: root.hasWarnings ? Colors.nodeInvalid : Colors.nodeSelection
+            border.color: root.hasWarnings ? GraphTheme.nodeInvalid : GraphTheme.nodeSelection
         }
 
         Rectangle {
@@ -486,10 +486,10 @@ Item {
             anchors.fill: nodeContent
             // The overview keeps the errors visible from afar
             readonly property bool overviewError: root.lod === 2 && node.globalStatus === "ERROR"
-            readonly property color errorColor: Colors.nodeStatusColors["ERROR"]
-            color: overviewError ? Qt.tint(Colors.nodeBackground, Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.3)) : Colors.nodeBackground
+            readonly property color errorColor: GraphTheme.nodeStatusColors["ERROR"]
+            color: overviewError ? Qt.tint(GraphTheme.nodeBackground, Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.3)) : GraphTheme.nodeBackground
             border.width: 1
-            border.color: overviewError ? errorColor : root.hovered && !ring.visible ? Colors.nodeTextSecondary : Colors.nodeBorder
+            border.color: overviewError ? errorColor : root.hovered && !ring.visible ? GraphTheme.nodeTextSecondary : GraphTheme.nodeBorder
             layer.enabled: true
             layer.effect: MultiEffect {
                 shadowColor: activePalette.shadow
@@ -536,7 +536,7 @@ Item {
                             width: 7
                             height: width
                             radius: width / 2
-                            color: root.statusChip ? root.statusChip.color : Colors.nodeTextSecondary
+                            color: root.statusChip ? root.statusChip.color : GraphTheme.nodeTextSecondary
                         }
 
                         Label {
@@ -548,8 +548,8 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             text: root.shortLabel(root.nodeLabel)
                             elide: Text.ElideRight
-                            color: Colors.nodeText
-                            font.family: Colors.headerFamily
+                            color: GraphTheme.nodeText
+                            font.family: GraphTheme.headerFamily
                             font.weight: Font.DemiBold
                             font.pointSize: 10
                         }
@@ -605,9 +605,9 @@ Item {
                             Layout.fillWidth: true
                             Layout.minimumWidth: Math.min(implicitWidth, labelMetrics.averageCharacterWidth * 12)
                             text: root.nodeLabel
-                            color: Colors.nodeText
+                            color: GraphTheme.nodeText
                             elide: Text.ElideRight
-                            font.family: Colors.headerFamily
+                            font.family: GraphTheme.headerFamily
                             font.weight: Font.DemiBold
                             font.pointSize: 10
 
@@ -668,10 +668,10 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: !statusChipItem.iconOnly
                                     text: root.statusChip ? root.statusChip.text : ""
-                                    font.family: Colors.fontFamily
+                                    font.family: GraphTheme.fontFamily
                                     font.weight: Font.Medium
                                     font.pointSize: 8.5
-                                    color: Colors.nodeText
+                                    color: GraphTheme.nodeText
                                 }
                             }
 
@@ -751,8 +751,8 @@ Item {
                 NodeChunks {
                     visible: node.isComputableType && root.lod < 2
                     targetNode: node
-                    defaultColor: Colors.nodeBorder
-                    chunkColorFunction: function(chunk) { return Colors.getNodeChunkColor(chunk) }
+                    defaultColor: GraphTheme.nodeBorder
+                    chunkColorFunction: function(chunk) { return GraphTheme.getNodeChunkColor(chunk) }
                     implicitHeight: 3
                     width: parent.width
 
@@ -781,7 +781,7 @@ Item {
 
                     Rectangle {
                         anchors.fill: parent
-                        color: Colors.nodeBorder
+                        color: GraphTheme.nodeBorder
                         z: -1
                     }
                 }
@@ -1099,7 +1099,7 @@ Item {
             anchors.fill: parent
             visible: port.nodeItem.lod === 1
             radius: width / 2
-            color: portMA.containsMouse ? Colors.nodeText : Colors.nodeTextSecondary
+            color: portMA.containsMouse ? GraphTheme.nodeText : GraphTheme.nodeTextSecondary
         }
 
         // No connection from here: dragging the port zooms in on the node, where its attribute pins can be used

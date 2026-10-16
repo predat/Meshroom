@@ -785,7 +785,7 @@ Item {
                     iteration: forLoop ? loopSource.value.indexOf(edge.src) : 0
                     cut: edgeSelectionLine.hitSet.has(index) && !root.isEdgeLocked(edge)
                     highlighted: !!root.insertPreview && root.insertPreview.edge === edge
-                    color: cut ? Colors.edgeCut : edge.dst === root.edgeAboutToBeRemoved ? Colors.red : Colors.dataTypeColor(edge.src.dataType)
+                    color: cut ? GraphTheme.edgeCut : edge.dst === root.edgeAboutToBeRemoved ? Colors.red : GraphTheme.dataTypeColor(edge.src.dataType)
                     thickness: forLoop ? 5 : highlighted ? 4 : (inFocus || incident) ? 3 : 2
                     // Contextual dimming is suspended while an edge is being dragged
                     opacity: root.draggedAttribute || root.activeNodeNames.size === 0 || incident || highlighted ? 1.0 : 0.3
@@ -842,7 +842,7 @@ Item {
                         startX: isValidEdge ? srcItem.outputPort.globalX + srcItem.outputPort.outputAnchorPos.x : 0
                         startY: isValidEdge ? srcItem.outputPort.globalY + srcItem.outputPort.outputAnchorPos.y : 0
                         fillColor: "transparent"
-                        strokeColor: cut ? Colors.edgeCut : Colors.nodeTextSecondary
+                        strokeColor: cut ? GraphTheme.edgeCut : GraphTheme.nodeTextSecondary
                         strokeStyle: cut ? ShapePath.DashLine : ShapePath.SolidLine
                         // Screen pixels
                         strokeWidth: Math.min(2 + modelData.count, 8) / draggable.scale
@@ -1580,14 +1580,14 @@ Item {
             height: knifeLabel.implicitHeight + 6
             radius: 3
             color: activePalette.window
-            border.color: Colors.edgeCut
+            border.color: GraphTheme.edgeCut
 
             Label {
                 id: knifeLabel
                 anchors.centerIn: parent
-                font.family: Colors.monoFamily
+                font.family: GraphTheme.monoFamily
                 font.pointSize: 8
-                color: Colors.edgeCut
+                color: GraphTheme.edgeCut
                 text: "\u2702 " + root.knifeHits.count + (root.knifeHits.locked > 0 ? " \u00B7 " + root.knifeHits.locked + " locked" : "")
             }
         }
@@ -1617,7 +1617,7 @@ Item {
             Label {
                 id: dragInfoLabel
                 anchors.centerIn: parent
-                font.family: Colors.monoFamily
+                font.family: GraphTheme.monoFamily
                 font.pointSize: 8
                 color: !connectionDragInfo.onTarget ? activePalette.text : root.dropTargetReason ? Colors.red : Colors.green
                 text: {
@@ -1791,7 +1791,7 @@ Item {
             // Click: 100 % on the center of the view
             ToolButton {
                 text: Math.round(draggable.scale * 100) + " %"
-                font.family: Colors.monoFamily
+                font.family: GraphTheme.monoFamily
                 font.pointSize: 8
                 padding: 2
                 Layout.preferredWidth: 44

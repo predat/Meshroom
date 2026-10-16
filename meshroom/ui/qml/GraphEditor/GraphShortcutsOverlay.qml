@@ -28,8 +28,8 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     background: Rectangle {
-        color: Colors.nodeBackground
-        border.color: Colors.nodeBorder
+        color: GraphTheme.nodeBackground
+        border.color: GraphTheme.nodeBorder
         radius: 8
     }
 
@@ -55,8 +55,8 @@ Popup {
 
                     Label {
                         text: modelData
-                        color: Colors.nodeText
-                        font.family: Colors.fontFamily
+                        color: GraphTheme.nodeText
+                        font.family: GraphTheme.fontFamily
                         font.pointSize: 10
                         font.bold: true
                         Layout.bottomMargin: 2
@@ -69,15 +69,15 @@ Popup {
                             spacing: 12
                             Label {
                                 text: modelData.keys
-                                color: Colors.nodeText
-                                font.family: Colors.monoFamily
+                                color: GraphTheme.nodeText
+                                font.family: GraphTheme.monoFamily
                                 font.pointSize: 8
                                 Layout.preferredWidth: 170
                             }
                             Label {
                                 text: modelData.description
-                                color: Colors.nodeTextSecondary
-                                font.family: Colors.fontFamily
+                                color: GraphTheme.nodeTextSecondary
+                                font.family: GraphTheme.fontFamily
                                 font.pointSize: 9
                             }
                         }
@@ -97,7 +97,7 @@ Popup {
                                 ShapePath {
                                     startX: 0
                                     startY: 5
-                                    strokeColor: Colors.dataTypeColor("sfmData")
+                                    strokeColor: GraphTheme.dataTypeColor("sfmData")
                                     strokeWidth: 2
                                     fillColor: "transparent"
                                     capStyle: ShapePath.RoundCap
@@ -116,8 +116,8 @@ Popup {
                             }
                             Label {
                                 text: modelData.description
-                                color: Colors.nodeTextSecondary
-                                font.family: Colors.fontFamily
+                                color: GraphTheme.nodeTextSecondary
+                                font.family: GraphTheme.fontFamily
                                 font.pointSize: 9
                             }
                         }

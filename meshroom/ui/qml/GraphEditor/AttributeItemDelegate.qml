@@ -195,7 +195,7 @@ RowLayout {
                 implicitWidth: 6
                 implicitHeight: 6
                 radius: 3
-                color: Colors.nodeModified
+                color: GraphTheme.nodeModified
             }
 
             Label {

@@ -34,7 +34,7 @@ RowLayout {
     readonly property real pinSize: 10
     // Non-compact pins straddle the node border: shifted outward by half a pin plus the 1 px inset of the attributes
     readonly property real pinOffset: compact ? 0 : pinSize / 2 + 1
-    readonly property color typeColor: compact ? Colors.nodeTextSecondary : Colors.dataTypeColor(attribute ? attribute.dataType : "")
+    readonly property color typeColor: compact ? GraphTheme.nodeTextSecondary : GraphTheme.dataTypeColor(attribute ? attribute.dataType : "")
 
     // Connection capture zone around the pin center: 24 px wide, and vertically up to halfway to the neighbour
     // rows (adjacent rows, or across the outputs/inputs gap), extended to 12 px above the first row and below the last one
@@ -440,7 +440,7 @@ RowLayout {
 
             // Text
             label.text: root.attribute.label
-            label.font.family: Colors.fontFamily
+            label.font.family: GraphTheme.fontFamily
             label.font.weight: Font.Normal
             label.font.pointSize: 9
             label.elide: hovered ? Text.ElideNone : Text.ElideMiddle

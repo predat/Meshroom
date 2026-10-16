@@ -24,21 +24,21 @@ RowLayout {
         implicitWidth: 6
         implicitHeight: 6
         radius: 3
-        color: Colors.nodeModified
+        color: GraphTheme.nodeModified
     }
 
     Label {
         text: root.modifiedCount + " modified"
-        color: Colors.tokenColor(Colors.nodeModified)
-        font.family: Colors.fontFamily
+        color: GraphTheme.tokenColor(GraphTheme.nodeModified)
+        font.family: GraphTheme.fontFamily
         font.pointSize: 8
     }
 
     Label {
         visible: !root.readOnly
         text: "· Reset"
-        color: resetArea.containsMouse ? Colors.nodeSelection : Colors.nodeTextSecondary
-        font.family: Colors.fontFamily
+        color: resetArea.containsMouse ? GraphTheme.nodeSelection : GraphTheme.nodeTextSecondary
+        font.family: GraphTheme.fontFamily
         font.pointSize: 8
         font.underline: resetArea.containsMouse
 

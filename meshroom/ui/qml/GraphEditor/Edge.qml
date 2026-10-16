@@ -184,7 +184,7 @@ Item {
                 anchors.centerIn: parent
                 text: "\u00D7" + root.loopSize
                 color: palette.text
-                font.family: Colors.monoFamily
+                font.family: GraphTheme.monoFamily
                 font.pointSize: 8
                 font.bold: true
             }

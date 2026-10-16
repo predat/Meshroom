@@ -82,12 +82,12 @@ ScrollView {
                             MaterialLabel {
                                 text: group.expanded ? MaterialIcons.expand_more : MaterialIcons.chevron_right
                                 font.pointSize: 10
-                                color: Colors.nodeTextSecondary
+                                color: GraphTheme.nodeTextSecondary
                             }
                             Label {
                                 text: modelData.title.toUpperCase() + "  · " + group.shownCount
-                                color: Colors.nodeTextSecondary
-                                font.family: Colors.fontFamily
+                                color: GraphTheme.nodeTextSecondary
+                                font.family: GraphTheme.fontFamily
                                 font.pointSize: 8
                                 font.bold: true
                                 font.letterSpacing: 1

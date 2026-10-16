@@ -50,24 +50,24 @@ Item {
         if (!node)
             return list
         if (nodeItem.readOnly)
-            list.push({ "icon": MaterialIcons.lock, "color": Colors.nodeStatusColors["ERROR"], "text": "Locked", "kind": "" })
+            list.push({ "icon": MaterialIcons.lock, "color": GraphTheme.nodeStatusColors["ERROR"], "text": "Locked", "kind": "" })
         if (node.isExternal)
-            list.push({ "icon": MaterialIcons.cloud, "color": Colors.nodeTextSecondary, "text": "Computed Externally", "kind": "" })
+            list.push({ "icon": MaterialIcons.cloud, "color": GraphTheme.nodeTextSecondary, "text": "Computed Externally", "kind": "" })
         if (node.hasDuplicates)
-            list.push({ "icon": MaterialIcons.layers, "color": Colors.nodeTextSecondary,
+            list.push({ "icon": MaterialIcons.layers, "color": GraphTheme.nodeTextSecondary,
                         "text": "<b>Shares internal folder (data) with other node(s). Hold click for details.</b>", "kind": "duplicates" })
         if (node.comment !== "" || node.invalidation !== "")
-            list.push({ "icon": MaterialIcons.comment, "color": Colors.nodeTextSecondary,
+            list.push({ "icon": MaterialIcons.comment, "color": GraphTheme.nodeTextSecondary,
                         "text": nodeItem.formatInternalAttributesTooltip(node.invalidation, node.comment), "kind": "comment" })
         if (nodeItem.hasWarnings)
-            list.push({ "icon": MaterialIcons.fmd_bad, "color": Colors.nodeInvalid, "text": "Some attribute validations are failing for this node.", "kind": "" })
+            list.push({ "icon": MaterialIcons.fmd_bad, "color": GraphTheme.nodeInvalid, "text": "Some attribute validations are failing for this node.", "kind": "" })
         if (hasOutputsToDisplay)
-            list.push({ "icon": MaterialIcons.visibility, "color": displayable ? Colors.nodeText : Colors.nodeTextSecondary,
+            list.push({ "icon": MaterialIcons.visibility, "color": displayable ? GraphTheme.nodeText : GraphTheme.nodeTextSecondary,
                         "text": visibilityTooltip(), "kind": "" })
         if (node.nodeVersionType === NodeVersionType.BETA)
-            list.push({ "icon": MaterialIcons.science, "color": Colors.nodeInvalid, "text": "This node is in beta version.", "kind": "" })
+            list.push({ "icon": MaterialIcons.science, "color": GraphTheme.nodeInvalid, "text": "This node is in beta version.", "kind": "" })
         else if (node.nodeVersionType === NodeVersionType.USER)
-            list.push({ "icon": MaterialIcons.new_releases, "color": Colors.nodeStatusColors["ERROR"],
+            list.push({ "icon": MaterialIcons.new_releases, "color": GraphTheme.nodeStatusColors["ERROR"],
                         "text": "This node is a user plugin. It is not maintained by the core team.", "kind": "" })
         return list
     }
@@ -76,7 +76,7 @@ Item {
     Rectangle {
         width: parent.width
         height: 1
-        color: Colors.nodeBorder
+        color: GraphTheme.nodeBorder
     }
 
     Label {
@@ -88,9 +88,9 @@ Item {
         text: root.meta
         visible: text !== ""
         elide: Text.ElideRight
-        font.family: Colors.monoFamily
+        font.family: GraphTheme.monoFamily
         font.pointSize: 8
-        color: Colors.nodeTextSecondary
+        color: GraphTheme.nodeTextSecondary
     }
 
     // Measures the full toggle label, to fall back to the compact one when it does not fit
@@ -98,7 +98,7 @@ Item {
         id: fullLabel
         visible: false
         text: (root.expanded ? "▾" : "▸") + " Params" + (root.modifiedCount > 0 ? " · " + root.modifiedCount + " modified" : "")
-        font.family: Colors.fontFamily
+        font.family: GraphTheme.fontFamily
         font.weight: Font.Medium
         font.pointSize: 8.5
     }
@@ -131,10 +131,10 @@ Item {
                         return fullLabel.text
                     return (root.expanded ? "▾" : "▸") + (root.modifiedCount > 0 ? " " + root.modifiedCount : "")
                 }
-                font.family: Colors.fontFamily
+                font.family: GraphTheme.fontFamily
                 font.weight: Font.Medium
                 font.pointSize: 8.5
-                color: toggleArea.containsMouse ? Colors.nodeText : Colors.nodeTextSecondary
+                color: toggleArea.containsMouse ? GraphTheme.nodeText : GraphTheme.nodeTextSecondary
             }
             Rectangle {
                 id: modifiedDot
@@ -143,7 +143,7 @@ Item {
                 width: 6
                 height: 6
                 radius: 3
-                color: Colors.nodeModified
+                color: GraphTheme.nodeModified
             }
         }
     }
@@ -165,10 +165,10 @@ Item {
             visible: root.badges.length > root.maxBadges
             text: "⋯" + (root.badges.length - root.maxBadges)
             padding: 2
-            font.family: Colors.fontFamily
+            font.family: GraphTheme.fontFamily
             font.weight: Font.Medium
             font.pointSize: 8.5
-            color: overflowMA.containsMouse ? Colors.nodeText : Colors.nodeTextSecondary
+            color: overflowMA.containsMouse ? GraphTheme.nodeText : GraphTheme.nodeTextSecondary
             MouseArea {
                 id: overflowMA
                 anchors.fill: parent

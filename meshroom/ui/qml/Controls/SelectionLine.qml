@@ -64,7 +64,7 @@ Item {
             ShapePath {
                 strokeWidth: 2;
                 strokeStyle: ShapePath.DashLine;
-                strokeColor: Colors.edgeCut;
+                strokeColor: GraphTheme.edgeCut;
                 dashPattern: [3, 2];
 
                 startX: 0;

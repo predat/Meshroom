@@ -461,7 +461,7 @@ Item {
                             padding: 4
                             color: "#2b2b2b"
                             elide: Text.ElideMiddle
-                            font.family: Colors.headerFamily
+                            font.family: GraphTheme.headerFamily
                             font.weight: Font.DemiBold
                             font.pointSize: 10 / Math.max(root.zoom, 0.2)
                         }

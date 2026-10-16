@@ -1,6 +1,7 @@
 module Utils
 
 singleton Colors 1.0 Colors.qml
+singleton GraphTheme 1.0 GraphTheme.qml
 SortFilterDelegateModel 1.0 SortFilterDelegateModel.qml
 Request 1.0 request.js
 Format 1.0 format.js

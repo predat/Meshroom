@@ -80,8 +80,8 @@ Rectangle {
         function onCountChanged() { Qt.callLater(root.updateBounds) }
     }
 
-    color: Qt.alpha(Colors.nodeBackground, 0.92)
-    border.color: Colors.nodeBorder
+    color: Qt.alpha(GraphTheme.nodeBackground, 0.92)
+    border.color: GraphTheme.nodeBorder
     radius: 6
     clip: true
 
@@ -102,10 +102,10 @@ Rectangle {
             width: Math.max(size.width * root.ratio, 2)
             height: Math.max(size.height * root.ratio, 2)
             radius: 1
-            color: node.isBackdropNode ? Qt.alpha(node.color !== "" ? node.color : Colors.nodeTextSecondary, 0.15)
-                                       : (Colors.nodeStatusColors[node.globalStatus] || Colors.nodeStatusColors["NONE"])
+            color: node.isBackdropNode ? Qt.alpha(node.color !== "" ? node.color : GraphTheme.nodeTextSecondary, 0.15)
+                                       : (GraphTheme.nodeStatusColors[node.globalStatus] || GraphTheme.nodeStatusColors["NONE"])
             border.width: selected ? 1 : 0
-            border.color: Colors.nodeSelection
+            border.color: GraphTheme.nodeSelection
 
             Connections {
                 target: node
@@ -123,8 +123,8 @@ Rectangle {
         y: topLeft.y
         width: root.viewRect.width * root.ratio
         height: root.viewRect.height * root.ratio
-        color: Qt.alpha(Colors.nodeSelection, 0.08)
-        border.color: Colors.nodeSelection
+        color: Qt.alpha(GraphTheme.nodeSelection, 0.08)
+        border.color: GraphTheme.nodeSelection
         border.width: 1.5
         radius: 2
     }

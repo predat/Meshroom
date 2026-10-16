@@ -76,26 +76,26 @@ Popup {
     function buildCandidates() {
         const items = []
         for (const [name, info] of Object.entries(nodeTypes)) {
-            const style = Colors.categoryStyle(info.category)
+            const style = GraphTheme.categoryStyle(info.category)
             items.push({ "kind": "node", "key": "node:" + name, "name": name, "label": name, "section": "Nodes",
-                         "category": info.category, "icon": style.icon, "color": Colors.tokenColor(style.color),
+                         "category": info.category, "icon": style.icon, "color": GraphTheme.tokenColor(style.color),
                          "hint": badge(info.versionType), "doc": info.doc, "inputs": info.inputs })
         }
         for (const name of pipelines) {
             items.push({ "kind": "pipeline", "key": "pipeline:" + name, "name": name, "label": name, "section": "Pipelines",
-                         "icon": "account_tree", "color": Colors.nodeTextSecondary, "hint": "",
+                         "icon": "account_tree", "color": GraphTheme.nodeTextSecondary, "hint": "",
                          "doc": "Import this pipeline template at the cursor." })
         }
         if (!createMode) {
             for (let i = 0; graphNodes && i < graphNodes.count; ++i) {
                 const node = graphNodes.at(i)
                 items.push({ "kind": "graph", "key": "graph:" + node.name, "node": node, "label": node.label, "section": "In Graph",
-                             "icon": "lens", "color": Colors.nodeStatusColors[node.globalStatus] || Colors.nodeTextSecondary,
+                             "icon": "lens", "color": GraphTheme.nodeStatusColors[node.globalStatus] || GraphTheme.nodeTextSecondary,
                              "hint": "", "doc": node.nodeType + " · " + node.globalStatus.toLowerCase() + " — select and center" })
             }
             for (const shortcut of GraphShortcuts.shortcuts.filter(s => s.command)) {
                 items.push({ "kind": "command", "key": "command:" + shortcut.action, "name": shortcut.action, "label": shortcut.command,
-                             "section": "Commands", "icon": "bolt", "color": Colors.nodeTextSecondary,
+                             "section": "Commands", "icon": "bolt", "color": GraphTheme.nodeTextSecondary,
                              "hint": shortcut.keys, "doc": shortcut.description })
             }
         }
@@ -114,7 +114,7 @@ Popup {
         let open = false
         for (let i = 0; i < label.length; ++i) {
             if (matched.has(i) !== open) {
-                html += open ? "</font>" : "<font color=\"" + Colors.nodeSelection + "\">"
+                html += open ? "</font>" : "<font color=\"" + GraphTheme.nodeSelection + "\">"
                 open = !open
             }
             html += escape(label[i])
@@ -189,8 +189,8 @@ Popup {
     ListModel { id: resultsModel }
 
     background: Rectangle {
-        color: Colors.nodeBackground
-        border.color: Colors.nodeBorder
+        color: GraphTheme.nodeBackground
+        border.color: GraphTheme.nodeBorder
         radius: 8
     }
 
@@ -205,7 +205,7 @@ Popup {
 
             MaterialLabel {
                 text: MaterialIcons.search
-                color: Colors.nodeTextSecondary
+                color: GraphTheme.nodeTextSecondary
                 font.pointSize: 11
             }
 
@@ -213,9 +213,9 @@ Popup {
                 id: field
                 Layout.fillWidth: true
                 placeholderText: root.createMode ? "Create a node or import a pipeline…" : "Search nodes, pipelines, commands…"
-                color: Colors.nodeText
-                placeholderTextColor: Colors.nodeTextSecondary
-                font.family: Colors.fontFamily
+                color: GraphTheme.nodeText
+                placeholderTextColor: GraphTheme.nodeTextSecondary
+                font.family: GraphTheme.fontFamily
                 font.pointSize: 10
                 background: null
                 selectByMouse: true
@@ -233,7 +233,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: Colors.nodeBorder
+            color: GraphTheme.nodeBorder
         }
 
         ListView {
@@ -257,8 +257,8 @@ Popup {
                 bottomPadding: 2
                 leftPadding: 10
                 text: section.toUpperCase()
-                color: Colors.nodeTextSecondary
-                font.family: Colors.fontFamily
+                color: GraphTheme.nodeTextSecondary
+                font.family: GraphTheme.fontFamily
                 font.pointSize: 8
                 font.letterSpacing: 1
             }
@@ -273,7 +273,7 @@ Popup {
 
                 width: ListView.view.width
                 height: root.rowHeight
-                color: ListView.isCurrentItem ? Qt.alpha(Colors.nodeSelection, 0.18) : "transparent"
+                color: ListView.isCurrentItem ? Qt.alpha(GraphTheme.nodeSelection, 0.18) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
@@ -299,8 +299,8 @@ Popup {
                         Layout.fillWidth: true
                         text: rowItem.html
                         textFormat: Text.StyledText
-                        color: Colors.nodeText
-                        font.family: Colors.fontFamily
+                        color: GraphTheme.nodeText
+                        font.family: GraphTheme.fontFamily
                         font.pointSize: 9
                         elide: Text.ElideRight
                     }
@@ -308,8 +308,8 @@ Popup {
                     Text {
                         text: rowItem.item.hint
                         visible: text !== ""
-                        color: Colors.nodeTextSecondary
-                        font.family: Colors.monoFamily
+                        color: GraphTheme.nodeTextSecondary
+                        font.family: GraphTheme.monoFamily
                         font.pointSize: 8
                     }
                 }
@@ -344,8 +344,8 @@ Popup {
             Layout.margins: 10
             visible: resultsModel.count === 0
             text: "No match"
-            color: Colors.nodeTextSecondary
-            font.family: Colors.fontFamily
+            color: GraphTheme.nodeTextSecondary
+            font.family: GraphTheme.fontFamily
             font.pointSize: 9
         }
 
@@ -353,7 +353,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: Colors.nodeBorder
+            color: GraphTheme.nodeBorder
             visible: doc.visible
         }
 
@@ -367,8 +367,8 @@ Popup {
             Label {
                 Layout.fillWidth: true
                 text: root.currentCandidate ? root.currentCandidate.doc : ""
-                color: Colors.nodeTextSecondary
-                font.family: Colors.fontFamily
+                color: GraphTheme.nodeTextSecondary
+                font.family: GraphTheme.fontFamily
                 font.pointSize: 9
                 wrapMode: Text.WordWrap
                 maximumLineCount: 3
@@ -392,12 +392,12 @@ Popup {
                             width: 8
                             height: 8
                             radius: 4
-                            color: Colors.dataTypeColor(modelData.dataType)
+                            color: GraphTheme.dataTypeColor(modelData.dataType)
                         }
                         Label {
                             text: modelData.label
-                            color: Colors.nodeText
-                            font.family: Colors.fontFamily
+                            color: GraphTheme.nodeText
+                            font.family: GraphTheme.fontFamily
                             font.pointSize: 8
                         }
                     }
