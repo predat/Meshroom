@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 
 import Utils 1.0
 
@@ -12,6 +13,13 @@ import "GraphShortcuts.js" as GraphShortcuts
 
 Popup {
     id: root
+
+    readonly property var edgeStates: [
+        { "description": "Produced data", "opacity": 1.0, "dashes": [], "animated": false },
+        { "description": "Data not produced yet", "opacity": 0.55, "dashes": [], "animated": false },
+        { "description": "Flowing: consumed by a running node", "opacity": 1.0, "dashes": [3, 2], "animated": true },
+        { "description": "Input to input", "opacity": 1.0, "dashes": [6, 3], "animated": false },
+    ]
 
     modal: true
     dim: true
@@ -65,6 +73,46 @@ Popup {
                                 font.family: Colors.monoFamily
                                 font.pointSize: 8
                                 Layout.preferredWidth: 170
+                            }
+                            Label {
+                                text: modelData.description
+                                color: Colors.nodeTextSecondary
+                                font.family: Colors.fontFamily
+                                font.pointSize: 9
+                            }
+                        }
+                    }
+
+                    // Edges legend: the data states (Edge.qml), with a sample of each
+                    Repeater {
+                        model: modelData === "Edges" ? root.edgeStates : []
+
+                        RowLayout {
+                            spacing: 12
+                            Shape {
+                                Layout.preferredWidth: 170
+                                Layout.preferredHeight: 10
+                                vendorExtensionsEnabled: false
+                                opacity: modelData.opacity
+                                ShapePath {
+                                    startX: 0
+                                    startY: 5
+                                    strokeColor: Colors.dataTypeColor("sfmData")
+                                    strokeWidth: 2
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    strokeStyle: modelData.dashes.length > 0 ? ShapePath.DashLine : ShapePath.SolidLine
+                                    dashPattern: modelData.dashes.length > 0 ? modelData.dashes : [1, 0]
+                                    // Only runs while the help is shown
+                                    NumberAnimation on dashOffset {
+                                        from: 5
+                                        to: 0
+                                        duration: 500
+                                        loops: Animation.Infinite
+                                        running: root.visible && modelData.animated
+                                    }
+                                    PathLine { x: 60; y: 5 }
+                                }
                             }
                             Label {
                                 text: modelData.description

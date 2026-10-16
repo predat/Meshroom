@@ -110,7 +110,7 @@ QtObject {
     // Edges cutting (knife): the error status color
     readonly property color edgeCut: nodeStatusColors["ERROR"]
 
-    // Icon tile of a node, by node type category (Material icon name + tint); "" is the fallback
+    // Icon tile of a node, by node type category (Material icon name + hue); "" is the neutral fallback
     readonly property var categoryStyles: {
         "Sparse Reconstruction": { "icon": "scatter_plot", "color": "#B48CF2" },
         "Dense Reconstruction": { "icon": "grain", "color": "#6CC785" },
@@ -124,7 +124,7 @@ QtObject {
         "Matting": { "icon": "content_cut", "color": "#E5A54B" },
         "Geolocation": { "icon": "place", "color": "#5FB3F5" },
         "Video Utils": { "icon": "movie", "color": "#5FB3F5" },
-        "Export": { "icon": "ios_share", "color": "#9AA1AD" },
+        "Export": { "icon": "ios_share", "color": "#E87FAF" },
         "Utils": { "icon": "build", "color": "#9AA1AD" },
         "": { "icon": "category", "color": "#9AA1AD" }
     }
@@ -165,8 +165,9 @@ QtObject {
     function getNodeChunkColor(chunk) {
         if (chunk === undefined || chunk == null)
             return "transparent"
+        // Neutral placeholder, visible on the node background
         if (chunk.statusName === "NONE")
-            return nodeBorder
+            return Qt.alpha(nodeTextSecondary, 0.35)
         if (chunk.execModeName === "EXTERN" && (chunk.statusName === "SUBMITTED" || chunk.statusName === "RUNNING"))
             return nodeStatusFarm
         const color = nodeStatusColors[chunk.statusName] || nodeStatusColors["NONE"]

@@ -794,9 +794,11 @@ Item {
                         if (srcStatus === "SUCCESS" && edge.dst.node.globalStatus === "RUNNING")
                             return "flow"
                         if (srcStatus === "SUCCESS" || !edge.src.node.isComputableType)
-                            return "solid"
-                        return "pending"
+                            return "produced"
+                        return "notProduced"
                     }
+                    // Hovered, or incident to the hovered/selected nodes: drawn above the nodes, not hidden under them
+                    z: inFocus || incident ? 1 : 0
                     point1x: isValidEdge ? src.globalX + src.outputAnchorPos.x : 0
                     point1y: isValidEdge ? src.globalY + src.outputAnchorPos.y : 0
                     point2x: isValidEdge ? dst.globalX + dst.inputAnchorPos.x : 0

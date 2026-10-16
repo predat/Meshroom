@@ -5,7 +5,7 @@ import pytest
 
 import meshroom
 from meshroom.core import desc
-from meshroom.core.attribute import GroupAttribute, ListAttribute
+from meshroom.core.attribute import GroupAttribute, ListAttribute, effectiveDataType
 from meshroom.core.graph import Graph, loadGraph
 
 from .utils import registeredNodeTypes
@@ -15,6 +15,7 @@ class NodeWithDataTypes(desc.Node):
     inputs = [
         desc.File(name="input", value=""),
         desc.File(name="custom", value="", dataType="features"),
+        desc.File(name="masks", value=""),
         desc.ListAttribute(name="featuresFolders", elementDesc=desc.File(name="featuresFolder", value="")),
         desc.GroupAttribute(name="group", items=[desc.IntParam(name="count", value=1)]),
         desc.BoolParam(name="enabledFlag", value=True),
@@ -127,3 +128,82 @@ def test_templateAttributesHaveDataType(templateName):
     for node in graph.nodes:
         for attribute in _allAttributes(node.attributes):
             assert attribute.dataType, attribute.fullName
+
+
+def test_linkedInputTakesFolderSourceDataType():
+    # An input typed "image" from its name, fed by a folder: the pin and the edge take the source color
+    with registeredNodeTypes([NodeWithDataTypes]):
+        graph = Graph("")
+        src = graph.addNewNode(NodeWithDataTypes.__name__)
+        dst = graph.addNewNode(NodeWithDataTypes.__name__)
+        assert dst.attribute("masks").dataType == "image"
+        graph.addEdge(src.attribute("outputFolder"), dst.attribute("masks"))
+        assert dst.attribute("masks").dataType == src.attribute("outputFolder").dataType == "folder"
+
+
+def test_linkedInputsChainAndNotification():
+    # src.output -> a.input -> b.input (input to input edge): the end of the chain follows the upstream source
+    with registeredNodeTypes([NodeWithDataTypes]):
+        graph = Graph("")
+        src, a, b = (graph.addNewNode(NodeWithDataTypes.__name__) for _ in range(3))
+        graph.addEdge(src.attribute("output"), a.attribute("input"))
+        graph.addEdge(a.attribute("input"), b.attribute("input"))
+        assert b.attribute("input").dataType == "sfmData"
+
+        notified = []
+        b.attribute("input").dataTypeChanged.connect(lambda: notified.append(True))
+        # Reconnect the upstream source: the change reaches the end of the chain
+        graph.addEdge(src.attribute("outputFolder"), a.attribute("input"))
+        assert b.attribute("input").dataType == "folder"
+        assert notified
+
+
+def test_listTakesLinkedElementDataType():
+    # The list pin carries the edges of its elements: it takes their source data type
+    with registeredNodeTypes([NodeWithDataTypes]):
+        graph = Graph("")
+        src = graph.addNewNode(NodeWithDataTypes.__name__)
+        dst = graph.addNewNode(NodeWithDataTypes.__name__)
+        folders = dst.attribute("featuresFolders")
+        assert folders.dataType == "features"
+        folders.append("")
+        notified = []
+        folders.dataTypeChanged.connect(lambda: notified.append(True))
+        graph.addEdge(src.attribute("outputFolder"), folders.at(0))
+        assert folders.dataType == folders.at(0).dataType == "folder"
+        assert notified
+
+
+class FakeAttribute:
+    """ Minimal attribute for effectiveDataType: a description and an optional link. """
+    def __init__(self):
+        self.desc = desc.File(name="f", value="")
+        self.link = None
+
+    @property
+    def isLink(self):
+        return self.link is not None
+
+    def _getInputLink(self):
+        return self.link
+
+
+def test_effectiveDataTypeCycleGuard():
+    a, b = FakeAttribute(), FakeAttribute()
+    a.link, b.link = b, a
+    # Terminates and falls back on the description type
+    assert effectiveDataType(a) == "file"
+
+
+def test_templateEdgesHaveConsistentDataTypes():
+    meshroom.core.initNodes()
+    meshroom.core.initPipelines()
+    if "nodalCameraTracking" not in meshroom.core.pipelineTemplates:
+        pytest.skip("'nodalCameraTracking' pipeline template not available")
+    graph = loadGraph(meshroom.core.pipelineTemplates["nodalCameraTracking"])
+    # Inputs with an explicit dataType= keep their own: none in this template
+    explicit = []
+    for edge in graph.edges:
+        if edge.dst.fullName in explicit:
+            continue
+        assert edge.dst.dataType == edge.src.dataType, f"{edge.src.fullName} -> {edge.dst.fullName}"

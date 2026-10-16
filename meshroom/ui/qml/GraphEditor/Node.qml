@@ -48,17 +48,9 @@ Item {
     readonly property real attributesGapTop: attributesGap.visible ? nodeAttributes.y + attributesGap.y : -1
     readonly property real attributesGapBottom: attributesGap.visible ? attributesGapTop + attributesGap.height : -1
 
-    /// Icon tile: node type category, or IO / non-computable nodes, tinted by the user color when set
+    /// Icon tile: always the hue of the node type category (the user color only goes to the header strip)
     readonly property var categoryStyle: Colors.categoryStyle(node && _nodeTypes[node.nodeType] ? _nodeTypes[node.nodeType].category : "")
-    readonly property color tileTint: {
-        if (!node)
-            return Colors.nodeTextSecondary
-        if (node.isIONode)
-            return Colors.tokenColor(Colors.dataTypeColors["image"])
-        if (!node.isComputableType)
-            return Colors.tokenColor(Colors.dataTypeColors["matches"])
-        return Colors.tokenColor(categoryStyle.color)
-    }
+    readonly property color tileTint: Colors.tokenColor(categoryStyle.color)
 
     /// Finished chunks, total chunks and the sum of the finished chunks durations
     readonly property var chunkStats: {
@@ -100,12 +92,19 @@ Item {
         return null
     }
 
-    /// Number of hidden parameters which differ from their default value (same rule as the Node Editor groups)
+    /// Whether an attribute, or one of the children of a group, is connected: its pin is shown even with the params collapsed
+    function isConnected(attribute) {
+        if (attribute.hasAnyInputLinks || attribute.hasAnyOutputLinks)
+            return true
+        return attribute.type === "GroupAttribute" && attribute.flatStaticChildren.some(child => child.hasAnyInputLinks || child.hasAnyOutputLinks)
+    }
+
+    /// Number of hidden parameters (not exposed, not connected) which differ from their default value
     readonly property int modifiedParamsCount: {
         let count = 0
         for (let i = 0; node && i < node.attributes.count; ++i) {
             const attr = node.attributes.at(i)
-            if (!attr.isOutput && !attr.exposed && attr.desc.visible && !attr.isLink && !attr.isDefault)
+            if (!attr.isOutput && !attr.exposed && attr.desc.visible && !isConnected(attr) && !attr.isDefault)
                 count++
         }
         return count
@@ -373,12 +372,14 @@ Item {
          * If the current pin is also a GroupAttribute and is expanded while its newly "visible" state
          * is false, it is reset.
          */
-        if (Boolean(attribute.enabled)) {
+        const connected = isConnected(attribute)
+        // A connected attribute keeps its pin, even disabled: its edges are anchored on it
+        if (Boolean(attribute.enabled) || connected) {
             // If the parent is a GroupAttribute, use the status of the parent's pin to determine visibility
             // UNLESS the child attribute is already connected with a visible edge
             if (attribute.root && attribute.root.isExpandable) {
 
-                var visible = Boolean(parentPins.get(attribute.root.fullName))
+                var visible = Boolean(parentPins.get(attribute.root.fullName)) || connected
                 if (!visible && parentPins.has(attribute.fullName) && parentPins.get(attribute.fullName) === true) {
                     parentPins.set(attribute.fullName, false)
                     attribute.expanded = false
@@ -587,13 +588,14 @@ Item {
                             Layout.preferredWidth: 18
                             Layout.preferredHeight: 18
                             radius: 4
-                            color: node.color !== "" ? node.color : Qt.rgba(root.tileTint.r, root.tileTint.g, root.tileTint.b, 0.22)
+                            // Hue at 22 % on the node background, glyph in the full hue
+                            color: Qt.rgba(root.tileTint.r, root.tileTint.g, root.tileTint.b, 0.22)
 
                             MaterialLabel {
                                 anchors.centerIn: parent
                                 text: MaterialIcons[root.categoryStyle.icon]
                                 font.pointSize: 9
-                                color: node.color === "" ? root.tileTint : (Qt.color(node.color).hslLightness > 0.6 ? "#1D2027" : "#EEF0F3")
+                                color: root.tileTint
                             }
                         }
 
@@ -989,20 +991,18 @@ Item {
                                         // Hidden parameters are not instantiated: each pin slows down the graph panning
                                         active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible && isFullyActive
                                         visible: {
-                                            if (Boolean(modelData.enabled || modelData.hasAnyOutputLinks || modelData.hasAnyInputLinks)) {
+                                            if (Boolean(modelData.enabled) || root.isConnected(modelData)) {
                                                 if (modelData.root && modelData.root.isExpandable) {
                                                     return Boolean(inputParams.parentPins.get(modelData.root.fullName) ||
-                                                                   modelData.hasAnyOutputLinks ||
-                                                                   modelData.hasAnyInputLinks)
+                                                                   root.isConnected(modelData))
                                                 }
                                                 return true
                                             }
                                             return false
                                         }
 
-                                        property bool isFullyActive: Boolean(m.displayParams ||
-                                                                             modelData.hasAnyInputLinks ||
-                                                                             modelData.hasAnyOutputLinks)
+                                        // Connected parameters (or groups with a connected child) stay shown with the params collapsed
+                                        property bool isFullyActive: Boolean(m.displayParams || root.isConnected(modelData))
                                         width: parent.width
 
                                         Connections {

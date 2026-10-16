@@ -22,8 +22,9 @@ Item {
     property bool isForLoop: false
     property int loopSize: 0
     property int iteration: 0
-    // State of the data carried by the edge: "solid" (produced), "flow" (consumed by a running node) or "pending"
-    property string dataState: "solid"
+    // State of the data carried by the edge, from its source node: "produced" (solid line), "notProduced" (solid line,
+    // opacity 0.55) or "flow" (produced and consumed by a running node: animated dashes, the only dashed state)
+    property string dataState: "produced"
     // Crossed by the knife: about to be removed
     property bool cut: false
     // Insertion preview: a node is about to be inserted on this edge
@@ -32,10 +33,11 @@ Item {
     // Edge from an input attribute (or connection preview without edge): long dashes, whatever the data state
     readonly property bool fromInput: !(edge !== undefined && ((edge.src !== undefined && edge.src.isOutput) || edge.dst === undefined))
     readonly property bool isFlowing: !fromInput && dataState === "flow"
-    // Dash pattern, in units of the stroke width; scaled down on thick edges to keep the dashes of a 2 px edge
+    // Dash pattern, in units of the stroke width; scaled down on thick edges to keep the dashes of a 2 px edge.
+    // Dashes: knife cut [3, 2], input to input [6, 3], flowing [3, 2] (animated); every other edge is a solid line.
     readonly property real dashScale: 2 / Math.max(thickness, 2)
-    readonly property var dashPattern: (cut ? [3, 2] : fromInput ? [6, 3] : isFlowing ? [3, 2] : [1, 2.5]).map(v => v * dashScale)
-    readonly property int strokeStyle: cut || fromInput || dataState !== "solid" ? ShapePath.DashLine : ShapePath.SolidLine
+    readonly property var dashPattern: (cut ? [3, 2] : fromInput ? [6, 3] : [3, 2]).map(v => v * dashScale)
+    readonly property int strokeStyle: cut || fromInput || isFlowing ? ShapePath.DashLine : ShapePath.SolidLine
 
     // Note: edgeArea is destroyed before path, so we need to test if not null to avoid warnings.
     readonly property bool containsMouse: (loopArea && loopArea.containsMouse) || (edgeArea && edgeArea.containsMouse)
@@ -99,7 +101,7 @@ Item {
         anchors.fill: parent
         // Cause rendering artifacts when enabled (and do not support hot reload really well)
         vendorExtensionsEnabled: false
-        opacity: !root.cut && !root.fromInput && root.dataState === "pending" ? 0.45 : 1.0
+        opacity: !root.cut && !root.fromInput && root.dataState === "notProduced" ? 0.55 : 1.0
 
         ShapePath {
             id: path
