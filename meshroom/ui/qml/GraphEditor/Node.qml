@@ -990,7 +990,11 @@ Item {
 
                                         // Hidden parameters are not instantiated: each pin slows down the graph panning
                                         active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible && isFullyActive
-                                        visible: {
+                                        // An unloaded Loader keeps the size of its last item: hide it, or the collapsed
+                                        // parameters would keep their rows
+                                        visible: active && childVisible
+                                        // Visibility from the parent group (updated with the pins of the groups)
+                                        property bool childVisible: {
                                             if (Boolean(modelData.enabled) || root.isConnected(modelData)) {
                                                 if (modelData.root && modelData.root.isExpandable) {
                                                     return Boolean(inputParams.parentPins.get(modelData.root.fullName) ||
@@ -1009,7 +1013,7 @@ Item {
                                             target: inputParams
 
                                             function onParentPinsUpdated() {
-                                                visible = updateChildPin(modelData, inputParams.parentPins, paramLoader.item)
+                                                paramLoader.childVisible = updateChildPin(modelData, inputParams.parentPins, paramLoader.item)
                                             }
                                         }
 
