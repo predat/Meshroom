@@ -46,6 +46,8 @@ Item {
     readonly property bool isBackdropNode: true
     // Height of the titlebar, used for selection rect computation
     readonly property real headerHeight: header.height
+    /// Graph zoom: the title keeps a constant size on screen
+    property real zoom: 1.0
 
     property point mousePosition: Qt.point(mouseArea.mouseX, mouseArea.mouseY)
 
@@ -124,7 +126,9 @@ Item {
             if (!delegate || delegate === this)
                 continue
 
-            const delegateRect = Qt.rect(delegate.x, delegate.y, delegate.width, delegate.height)
+            // Footprint of the graph nodes: their visible height depends on the zoom
+            const delegateHeight = delegate.footprintHeight !== undefined ? delegate.footprintHeight : delegate.height
+            const delegateRect = Qt.rect(delegate.x, delegate.y, delegate.width, delegateHeight)
             if (Geom2D.rectRectFullIntersect(backdropRect, delegateRect)) {
                 indices.push(i)
                 nodes.push(delegate)
@@ -459,7 +463,7 @@ Item {
                             elide: Text.ElideMiddle
                             font.family: GraphTheme.headerFamily
                             font.weight: Font.DemiBold
-                            font.pointSize: 10
+                            font.pointSize: 10 / Math.max(root.zoom, 0.2)
                         }
                     }
 

@@ -37,7 +37,7 @@ class EdgeMouseArea(QQuickItem):
         self.setAcceptedMouseButtons(Qt.AllButtons)
 
     def contains(self, point):
-        return self._path.contains(point)
+        return self.path().contains(point)
 
     def hoverEnterEvent(self, evt):
         self.setContainsMouse(True)
@@ -65,16 +65,22 @@ class EdgeMouseArea(QQuickItem):
         e.deleteLater()
 
     def updateShape(self):
-        p1 = QPointF(0, 0)
-        p2 = QPointF(self.width(), self.height())
-        ctrlPt = QPointF(abs(self.width() * self.curveScale), 0)
-        path = QPainterPath(p1)
-        path.cubicTo(p1 + ctrlPt, p2 - ctrlPt, p2)
+        # The outline is built on demand, by the hit tests: edges move far more often than they are hit
+        self._path = None
 
-        # Outline of the curve stroked with the edge thickness: keeps a constant width along the curve
-        stroker = QPainterPathStroker()
-        stroker.setWidth(self._thickness)
-        self._path = stroker.createStroke(path)
+    def path(self):
+        if self._path is None:
+            p1 = QPointF(0, 0)
+            p2 = QPointF(self.width(), self.height())
+            ctrlPt = QPointF(abs(self.width() * self.curveScale), 0)
+            path = QPainterPath(p1)
+            path.cubicTo(p1 + ctrlPt, p2 - ctrlPt, p2)
+
+            # Outline of the curve stroked with the edge thickness: keeps a constant width along the curve
+            stroker = QPainterPathStroker()
+            stroker.setWidth(self._thickness)
+            self._path = stroker.createStroke(path)
+        return self._path
 
     def getThickness(self):
         return self._thickness
@@ -113,7 +119,7 @@ class EdgeMouseArea(QQuickItem):
         path.moveTo(p1)
         # Create a diagonal line to the other end of the rect
         path.lineTo(p2)
-        v = self._path.intersects(path)
+        v = self.path().intersects(path)
         return v
 
     thicknessChanged = Signal()

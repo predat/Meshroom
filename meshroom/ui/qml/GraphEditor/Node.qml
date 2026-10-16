@@ -30,6 +30,15 @@ Item {
     property point position: Qt.point(x, y)
     /// Uuids of the attributes an edge being dragged can be connected to (null when no edge is dragged)
     property var compatibleAttributeUuids: null
+    /// Level of detail: 0 = full, 1 = structure (header and chunks, aggregated ports), 2 = overview (pill)
+    property int lod: 0
+    /// Graph zoom: the overview pill keeps a constant size on screen
+    property real zoom: 1.0
+    /// Height used for the selection and the framing: the visible height depends on the level of detail
+    property real footprintHeight: height
+    /// Ports on which the edges converge below the full level of detail
+    readonly property alias inputPort: inputPortItem
+    readonly property alias outputPort: outputPortItem
     /// Vertical extent of the attribute pins, relative to the node
     readonly property real attributesTop: nodeAttributes.y + attributesColumn.topPadding
     readonly property real attributesBottom: nodeAttributes.y + attributesColumn.height - attributesColumn.bottomPadding
@@ -131,6 +140,19 @@ Item {
         return Math.floor(s / 3600) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60)
     }
 
+    function shortLabel(label) {
+        /*
+         * Abbreviates each long word of a camel case label to its first syllable, for the overview pill:
+         * "CameraInit" -> "CamInit", "FeatureExtraction" -> "FeatExtr". Short words, acronyms and numbers are kept.
+         */
+        return label.replace(/[A-Z]?[a-z]+/g, function(word) {
+            if (word.length <= 4)
+                return word
+            const syllable = word.match(/^[^aeiouy]*[aeiouy]+[^aeiouy]*/i)
+            return syllable ? syllable[0].slice(0, 5) : word.slice(0, 4)
+        })
+    }
+
     function statusTooltip() {
         /*
          * Returns the status chip tooltip: the status word, plus the remaining time while running,
@@ -177,6 +199,8 @@ Item {
 
     // Already connected attribute with another edge in DropArea
     signal edgeAboutToBeRemoved(var input)
+    /// An aggregated port has been dragged: the node should be zoomed in on to connect its attributes
+    signal zoomRequested()
 
     /// Emitted when child attribute pins are created
     signal attributePinCreated(var attribute, var pin)
@@ -467,16 +491,20 @@ Item {
             visible: root.mainSelected || root.selected
             radius: background.radius + 2
             color: "transparent"
-            border.width: 2
+            // Constant on screen in the overview
+            border.width: root.lod === 2 ? 2 / Math.max(root.zoom, 0.2) : 2
             border.color: root.hasWarnings ? GraphTheme.nodeInvalid : GraphTheme.nodeSelection
         }
 
         Rectangle {
             id: background
             anchors.fill: nodeContent
-            color: root.bodyColor
+            // The overview keeps the errors visible from afar
+            readonly property bool overviewError: root.lod === 2 && node.globalStatus === "ERROR"
+            readonly property color errorColor: GraphTheme.nodeStatusColors["ERROR"]
+            color: overviewError ? Qt.tint(root.bodyColor, Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.3)) : root.bodyColor
             border.width: 1
-            border.color: root.hovered && !ring.visible ? root.textSecondaryColor : root.borderColor
+            border.color: overviewError ? errorColor : root.hovered && !ring.visible ? root.textSecondaryColor : root.borderColor
             layer.enabled: true
             layer.effect: MultiEffect {
                 shadowColor: activePalette.shadow
@@ -485,7 +513,7 @@ Item {
                 shadowEnabled: true
                 blurMax: 16  // large values could impact performances
             }
-            radius: 8
+            radius: root.lod === 2 ? height / 2 : 8
 
             // Header background: a child of the body, so that it is drawn in its layer (nothing to redraw while panning)
             Rectangle {
@@ -518,9 +546,54 @@ Item {
                 id: body
                 width: parent.width
 
+                // Overview pill: status dot and label, with a constant size on screen.
+                // Always instantiated (cheap, unlike the pins): entering the overview only shows it.
+                Item {
+                    id: pill
+                    visible: root.lod === 2
+                    width: parent.width
+                    readonly property real unit: visible ? 1 / Math.max(root.zoom, 0.2) : 1
+                    height: pillContent.height * unit
+
+                    // Scaled rather than resized: no text layout at each zoom step
+                    Item {
+                        id: pillContent
+                        width: pill.width / pill.unit
+                        height: pillLabel.implicitHeight + 6
+                        scale: pill.unit
+                        transformOrigin: Item.TopLeft
+
+                        Rectangle {
+                            id: statusDot
+                            x: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 7
+                            height: width
+                            radius: width / 2
+                            color: root.statusChip ? root.statusChip.color : root.textSecondaryColor
+                        }
+
+                        Label {
+                            id: pillLabel
+                            anchors.left: statusDot.right
+                            anchors.leftMargin: 4
+                            anchors.right: parent.right
+                            anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.shortLabel(root.nodeLabel)
+                            elide: Text.ElideRight
+                            color: root.textColor
+                            font.family: GraphTheme.headerFamily
+                            font.weight: Font.DemiBold
+                            font.pointSize: 10
+                        }
+                    }
+                }
+
                 // Header
                 Item {
                     id: header
+                    visible: root.lod < 2
                     width: parent.width
                     height: 28
 
@@ -640,6 +713,7 @@ Item {
                     Loader {
                         id: flowInputsLoader
                         active: node && node.hasInternalAttribute("flowInputs")
+                        visible: root.lod === 0
                         x: -5  // half of the pin
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -671,6 +745,7 @@ Item {
                     Loader {
                         id: flowOutLoader
                         active: node && node.hasInternalAttribute("flowOutput")
+                        visible: root.lod === 0
                         x: parent.width - width + 5  // half of the pin outside
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -696,7 +771,7 @@ Item {
 
                 // Node Chunks
                 NodeChunks {
-                    visible: node.isComputableType
+                    visible: node.isComputableType && root.lod < 2
                     targetNode: node
                     defaultColor: root.borderColor
                     chunkColorFunction: function(chunk) { return GraphTheme.getNodeChunkColor(chunk) }
@@ -734,9 +809,11 @@ Item {
                 }
 
 
-                // Input/Output Attributes
+                // Input/Output Attributes: only hidden below the full level of detail, as (re)creating
+                // the pins of a whole graph takes seconds, far too long for a zoom threshold
                 Item {
                     id: nodeAttributes
+                    visible: root.lod === 0
                     width: parent.width - 2
                     height: childrenRect.height
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -933,8 +1010,13 @@ Item {
                                     delegate: Loader {
                                         id: paramLoader
 
-                                        active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible
-                                        visible: {
+                                        // Hidden parameters are not instantiated: each pin slows down the graph panning
+                                        active: !modelData.isOutput && !modelData.exposed && modelData.desc.visible && isFullyActive
+                                        // An unloaded Loader keeps the size of its last item: hide it, or the collapsed
+                                        // parameters would keep their rows
+                                        visible: active && childVisible
+                                        // Visibility from the parent group (updated with the pins of the groups)
+                                        property bool childVisible: {
                                             if (Boolean(modelData.enabled) || root.isConnected(modelData)) {
                                                 if (modelData.root && modelData.root.isExpandable) {
                                                     return Boolean(inputParams.parentPins.get(modelData.root.fullName) ||
@@ -953,7 +1035,7 @@ Item {
                                             target: inputParams
 
                                             function onParentPinsUpdated() {
-                                                visible = updateChildPin(modelData, inputParams.parentPins, paramLoader.item)
+                                                paramLoader.childVisible = updateChildPin(modelData, inputParams.parentPins, paramLoader.item)
                                             }
                                         }
 
@@ -1008,6 +1090,7 @@ Item {
                 }
 
                 NodeFooter {
+                    visible: root.lod === 0
                     width: parent.width
                     nodeItem: root
                     meta: root.chunkStats.done > 0 || node.globalStatus === "RUNNING" ? root.chunkStats.done + "/" + root.chunkStats.count + " · " + root.formatDuration(root.chunkStats.elapsed) : ""
@@ -1017,6 +1100,72 @@ Item {
                 }
             }
         }
+    }
+
+    // Inline component: no access to the ids of this file
+    component AggregatedPort: Item {
+        id: port
+        property var nodeItem
+        property bool isOutput: false
+        property real centerY: 0
+        // Same interface as the attribute pins, for the edges anchoring
+        readonly property var attribute: null
+        readonly property real globalX: nodeItem.x + x
+        readonly property real globalY: nodeItem.y + y
+        readonly property point inputAnchorPos: Qt.point(width / 2, height / 2)
+        readonly property point outputAnchorPos: inputAnchorPos
+
+        visible: nodeItem.lod > 0
+        width: 10
+        height: 10
+        x: isOutput ? nodeItem.width - width / 2 : -width / 2
+        y: centerY - height / 2
+
+        Rectangle {
+            anchors.fill: parent
+            visible: port.nodeItem.lod === 1
+            radius: width / 2
+            color: portMA.containsMouse ? port.nodeItem.textColor : port.nodeItem.textSecondaryColor
+        }
+
+        // No connection from here: dragging the port zooms in on the node, where its attribute pins can be used
+        MouseArea {
+            id: portMA
+            anchors.fill: parent
+            anchors.margins: -4
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            property point pressPosition
+            property bool zoomed: false
+            onPressed: function(mouse) {
+                pressPosition = Qt.point(mouse.x, mouse.y)
+                zoomed = false
+            }
+            onPositionChanged: function(mouse) {
+                if (pressed && !zoomed && Math.hypot(mouse.x - pressPosition.x, mouse.y - pressPosition.y) >= 5) {
+                    zoomed = true
+                    port.nodeItem.zoomRequested()
+                }
+            }
+            ToolTip.visible: containsMouse
+            ToolTip.text: "Drag to zoom in and connect the attributes"
+            ToolTip.delay: 500
+        }
+    }
+
+    // Centered on the header; in the overview, same position, near the top of the pill: as the pill keeps a
+    // constant size on screen, a port centered on it would move all the edges at each zoom step
+    AggregatedPort {
+        id: inputPortItem
+        nodeItem: root
+        centerY: header.height / 2
+    }
+
+    AggregatedPort {
+        id: outputPortItem
+        nodeItem: root
+        isOutput: true
+        centerY: header.height / 2
     }
 
     /// Set to true by the GraphEditor's DropArea when files are dragged over this InputNode

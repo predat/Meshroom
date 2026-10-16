@@ -369,15 +369,18 @@ RowLayout {
                 }
             }
 
-            Edge {
-                id: inputConnectEdge
-                visible: false
-                point1x: inputDragTarget.x + inputDragTarget.width / 2
-                point1y: inputDragTarget.y + inputDragTarget.height / 2
-                point2x: parent.width / 2
-                point2y: parent.width / 2
-                color: root.typeColor
-                thickness: outputDragTarget.dropAccepted ? 2 : 1
+            // Edge preview, only instantiated while dragging: pins are numerous and each item slows down the graph panning
+            Loader {
+                active: root.state === "DraggingInput"
+                z: 100
+                sourceComponent: Edge {
+                    point1x: inputDragTarget.x + inputDragTarget.width / 2
+                    point1y: inputDragTarget.y + inputDragTarget.height / 2
+                    point2x: inputAnchor.width / 2
+                    point2y: inputAnchor.width / 2
+                    color: root.typeColor
+                    thickness: outputDragTarget.dropAccepted ? 2 : 1
+                }
             }
         }
     }
@@ -601,15 +604,18 @@ RowLayout {
             }
         }
 
-        Edge {
-            id: outputConnectEdge
-            visible: false
-            point1x: parent.width / 2
-            point1y: parent.width / 2
-            point2x: outputDragTarget.x + outputDragTarget.width / 2
-            point2y: outputDragTarget.y + outputDragTarget.height / 2
-            color: root.typeColor
-            thickness: outputDragTarget.dropAccepted ? 2 : 1
+        // Edge preview, only instantiated while dragging
+        Loader {
+            active: root.state === "DraggingOutput"
+            z: 100
+            sourceComponent: Edge {
+                point1x: outputAnchor.width / 2
+                point1y: outputAnchor.width / 2
+                point2x: outputDragTarget.x + outputDragTarget.width / 2
+                point2y: outputDragTarget.y + outputDragTarget.height / 2
+                color: root.typeColor
+                thickness: outputDragTarget.dropAccepted ? 2 : 1
+            }
         }
     }
 
@@ -647,11 +653,6 @@ RowLayout {
                 anchors.horizontalCenter: undefined
                 anchors.verticalCenter: undefined
             }
-            PropertyChanges {
-                target: inputConnectEdge
-                z: 100
-                visible: true
-            }
             StateChangeScript {
                 script: {
                     // Add the right offset if the initial click is not exactly at the center of the connection circle.
@@ -667,11 +668,6 @@ RowLayout {
                 target: outputDragTarget
                 anchors.horizontalCenter: undefined
                 anchors.verticalCenter: undefined
-            }
-            PropertyChanges {
-                target: outputConnectEdge
-                z: 100
-                visible: true
             }
             StateChangeScript {
                 script: {

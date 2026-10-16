@@ -9,7 +9,7 @@ from threading import Thread, Event, Lock
 from multiprocessing.pool import ThreadPool
 from typing import Optional, Union
 from collections.abc import Iterator
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 from PySide6.QtCore import (
     Qt,
@@ -114,6 +114,19 @@ def connectionTargets(graph: Graph, srcAttr: Attribute, srcConnector: str) -> di
                 if not nodes or nodes[-1] != node.name:
                     nodes.append(node.name)
     return {"attributes": attributes, "nodes": nodes}
+
+
+def mergeEdges(edges: Iterable[Edge]) -> Counter:
+    """
+    Count the edges between each pair of nodes, for the Graph Editor overview.
+
+    Args:
+        edges: the edges of a graph.
+
+    Returns:
+        The number of edges per (source node, destination node) pair, in order of first appearance.
+    """
+    return Counter((edge.src.node, edge.dst.node) for edge in edges)
 
 
 class PollerRefreshStatus(Enum):
@@ -511,6 +524,8 @@ class UIGraph(QObject):
         self._selectedChunk = None
         self._nodeSelection: QItemSelectionModel = QItemSelectionModel(self._graph.nodes, parent=self)
         self._hoveredNode = None
+        self._mergedEdges = None
+        self._graph.edges.countChanged.connect(self._invalidateMergedEdges)
 
         self.submitLabel = "{projectName}"
         self.computeStatusChanged.connect(self.updateLockedUndoStack)
@@ -531,6 +546,8 @@ class UIGraph(QObject):
 
         self._graph.updated.connect(self.onGraphUpdated)
         self._graph.statusUpdated.connect(self.updateChunkMonitor)
+        self._graph.edges.countChanged.connect(self._invalidateMergedEdges)
+        self._invalidateMergedEdges()
         self._taskManager.update(self._graph)
 
         # Update and connect chunks when the graph is set for the first time
@@ -586,6 +603,18 @@ class UIGraph(QObject):
         self.updateChunkMonitor()
         # update graph computing status based on the new list of NodeChunks
         self.updateGraphComputingStatus()
+
+    def _invalidateMergedEdges(self):
+        """ Drop the merged edges: they are computed again on their next read. """
+        self._mergedEdges = None
+        self.mergedEdgesChanged.emit()
+
+    def getMergedEdges(self) -> list:
+        """ Edges merged by pair of nodes, as [{"src": Node, "dst": Node, "count": int}], computed on demand. """
+        if self._mergedEdges is None:
+            self._mergedEdges = [{"src": src, "dst": dst, "count": count}
+                                 for (src, dst), count in mergeEdges(self._graph.edges.values()).items()]
+        return self._mergedEdges
 
     def updateChunkMonitor(self):
         """ Update the list of chunks for status files monitoring. """
@@ -1763,6 +1792,8 @@ class UIGraph(QObject):
     taskManager = Property(TaskManager, lambda self: self._taskManager, constant=True)
     nodes = Property(QObject, lambda self: self._graph.nodes, notify=graphChanged)
     layout = Property(GraphLayout, lambda self: self._layout, constant=True)
+    mergedEdgesChanged = Signal()
+    mergedEdges = Property("QVariantList", getMergedEdges, notify=mergedEdgesChanged)
 
     computeStatusChanged = Signal()
     computing = Property(bool, isComputing, notify=computeStatusChanged)
