@@ -1452,7 +1452,65 @@ class UIGraph(QObject):
         with self.groupedGraphModification("Remove Edges"):
             copied = list(self._graph.edges)
             for index in indices:
-                self.removeEdge(copied[index])
+                edge = copied[index]
+                # Edges going into a locked or read-only attribute are left untouched
+                if edge.dst.node.locked or edge.dst.isReadOnly:
+                    continue
+                self.removeEdge(edge)
+
+    @Slot(Node, Edge, result="QVariantList")
+    def insertionAttributes(self, node, edge):
+        """
+        Find the attributes of 'node' to insert it on 'edge'.
+
+        Returns:
+            [input, output]: an input accepting the edge source and an output accepted by the edge destination,
+            preferring the same name as the edge attribute they stand for (e.g. output, input) with a compatible
+            data type, then the same data type; an empty list if the node cannot be inserted on this edge.
+        """
+        src, dst = edge.src, edge.dst
+        isForLoop = isinstance(src.root, ListAttribute) and not isinstance(dst, ListAttribute) \
+            and not isinstance(dst.root, ListAttribute)
+        if isForLoop or dst.node.locked or dst.isReadOnly or node in (src.node, dst.node):
+            return []
+        # Only an unconnected node can be inserted
+        if any(node in (e.src.node, e.dst.node) for e in self._graph.edges):
+            return []
+
+        def bestMatch(candidates, dataType, name):
+            def score(a):
+                # "file" is the generic data type (e.g. undetermined output value): compatible with any other
+                compatible = a.dataType == dataType or "file" in (a.dataType, dataType)
+                return (compatible and a.name == name, a.dataType == dataType, compatible)
+            # max() keeps the first of the best candidates, in the node attributes order
+            return max(candidates, key=score, default=None)
+
+        inputs = [a for a in node.attributes if a.isInput and a.validateIncomingConnection(src)]
+        outputs = [a for a in node.attributes if a.isOutput and dst.validateIncomingConnection(a)]
+        inputAttr, outputAttr = bestMatch(inputs, src.dataType, dst.name), bestMatch(outputs, dst.dataType, src.name)
+        if inputAttr is None or outputAttr is None:
+            return []
+        return [inputAttr, outputAttr]
+
+    @Slot(Node, Edge, result=bool)
+    def insertNodeOnEdge(self, node, edge):
+        """ [Undoable]
+        Insert 'node' on 'edge': src -> node input, node output -> dst.
+
+        Returns:
+            Whether the node has been inserted (nothing is modified otherwise).
+        """
+        attributes = self.insertionAttributes(node, edge)
+        if not attributes:
+            return False
+        inputAttr, outputAttr = attributes
+        src, dst = edge.src, edge.dst
+        with self.groupedGraphModification(f"Insert {node.name} on Edge '{src.fullName}'->'{dst.fullName}'"):
+            # Not removeEdge(): it would also remove dst when it is a list element
+            self.push(commands.RemoveEdgeCommand(self._graph, edge))
+            self.addEdge(src, inputAttr)
+            self.push(commands.AddEdgeCommand(self._graph, outputAttr, dst))
+        return True
 
     @Slot()
     def disconnectSelectedNodes(self):

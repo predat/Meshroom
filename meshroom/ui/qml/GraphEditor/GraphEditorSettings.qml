@@ -19,4 +19,6 @@ Settings {
     property bool semanticZoom: true
     property real lodStructureThreshold: 0.8
     property real lodOverviewThreshold: 0.4
+    // Dropping a node (moved or created from the menu) on a compatible edge inserts it
+    property bool insertOnEdge: true
 }

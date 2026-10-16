@@ -30,6 +30,8 @@ Item {
     property point position: Qt.point(x, y)
     /// Uuids of the attributes an edge being dragged can be connected to (null when no edge is dragged)
     property var compatibleAttributeUuids: null
+    /// Uuids of the attributes of a previewed node insertion on an edge (null otherwise)
+    property var insertAttributeUuids: null
     /// Level of detail: 0 = full, 1 = structure (header and chunks, aggregated ports), 2 = overview (pill)
     property int lod: 0
     /// Graph zoom: the overview pill keeps a constant size on screen

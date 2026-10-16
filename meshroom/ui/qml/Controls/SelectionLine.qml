@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Shapes
 
+import Utils 1.0
+
 /*
 Simple selection line that can be used by a MouseArea.
 
@@ -18,6 +20,9 @@ Item {
     property MouseArea mouseArea
 
     readonly property bool active: mouseArea.drag.target == dragTarget
+    // Current segment, in the coordinates of this Item
+    readonly property point p1: Qt.point(selectionShape.x, selectionShape.y)
+    readonly property point p2: Qt.point(selectionShape.x + selectionShape.width, selectionShape.y + selectionShape.height)
 
     signal selectionEnded(point selectionP1, point selectionP2, int modifiers)
 
@@ -33,9 +38,12 @@ Item {
             return;
         }
         mouseArea.drag.target = null;
-        const p1 = Qt.point(selectionShape.x, selectionShape.y);
-        const p2 = Qt.point(selectionShape.x + selectionShape.width, selectionShape.y + selectionShape.height);
         selectionEnded(p1, p2, dragTarget.modifiers);
+    }
+
+    /// Stop the selection without emitting selectionEnded
+    function cancelSelection() {
+        mouseArea.drag.target = null;
     }
 
     visible: active
@@ -56,7 +64,7 @@ Item {
             ShapePath {
                 strokeWidth: 2;
                 strokeStyle: ShapePath.DashLine;
-                strokeColor: "#CC3E3E";
+                strokeColor: GraphTheme.edgeCut;
                 dashPattern: [3, 2];
 
                 startX: 0;

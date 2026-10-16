@@ -7,6 +7,8 @@ import Controls 1.0
 import MaterialIcons 2.2
 import Utils 1.0
 
+import "GraphShortcuts.js" as GraphShortcuts
+
 /**
  * A component displaying a Graph (nodes, attributes and edges).
  */
@@ -130,6 +132,97 @@ Item {
             compatibleAttributeUuids = new Set(targets.attributes)
             compatibleNodeNames = new Set(targets.nodes)
         }
+    }
+
+    // Knife: K held + drag cuts the crossed edges (Ctrl+Alt+drag is an alias). A short tap on K arms it for one
+    // stroke, without holding the key: touchpads are disabled while a key is held (libinput "disable while typing")
+    property bool knifeKeyHeld: false
+    property bool knifeArmed: false
+    property bool knifeUsed: false  /// A stroke started while K was held: releasing K does not arm the knife
+    property double knifePressTime: 0
+    property double knifeReleaseTime: 0
+    readonly property bool knifeActive: knifeKeyHeld || knifeArmed
+    onActiveFocusChanged: if (!activeFocus) knifeKeyHeld = knifeArmed = false
+
+    function isEdgeLocked(edge) {
+        return edge.dst.node.locked || edge.dst.isReadOnly
+    }
+
+    // Edges crossed by the knife: removable and locked counts, and the "src>dst" node pairs (merged edges)
+    readonly property var knifeHits: {
+        const hits = { "count": 0, "locked": 0, "pairs": new Set() }
+        for (const index of edgeSelectionLine.hitIndices) {
+            const edge = edgesRepeater.itemAt(index).edge
+            if (isEdgeLocked(edge)) {
+                hits.locked++
+                continue
+            }
+            hits.count++
+            hits.pairs.add(edge.src.node.name + ">" + edge.dst.node.name)
+        }
+        return hits
+    }
+
+    // Insertion on an edge: the edge under a node (with the uuids of the attributes to connect),
+    // previewed once hovered for 150 ms
+    property var insertCandidate: null
+    property var insertPreview: null
+
+    /// First edge crossed by one of the segments ([p1, p2], in draggable coordinates) on which node can be inserted
+    function insertionAt(node, segments) {
+        for (let i = 0; i < edgesRepeater.count; ++i) {
+            const item = edgesRepeater.itemAt(i)
+            if (!item || !item.isValidEdge || !segments.some(s => item.intersectsSegment(s[0], s[1])))
+                continue
+            const attributes = uigraph.insertionAttributes(node, item.edge)
+            if (attributes.length > 0) {
+                const uuids = [item.edge.src.uuid, item.edge.dst.uuid, attributes[0].uuid, attributes[1].uuid]
+                return { "edge": item.edge, "uuids": new Set(uuids) }
+            }
+        }
+        return null
+    }
+
+    /// Track the edge under the single dragged node, crossed by one of its diagonals
+    function updateInsertCandidate(nodeItem) {
+        let found = null
+        if (GraphEditorSettings.insertOnEdge && lod < 2 && uigraph.nodeSelection.selectedIndexes.length === 1) {
+            const r = Qt.rect(nodeItem.x, nodeItem.y, nodeItem.width, nodeItem.height)
+            found = insertionAt(nodeItem.node, [[Qt.point(r.x, r.y), Qt.point(r.x + r.width, r.y + r.height)],
+                                                [Qt.point(r.x + r.width, r.y), Qt.point(r.x, r.y + r.height)]])
+        }
+        if ((found ? found.edge : null) === (insertCandidate ? insertCandidate.edge : null))
+            return
+        insertCandidate = found
+        insertPreview = null
+        if (found)
+            insertTimer.restart()
+        else
+            insertTimer.stop()
+    }
+
+    function clearInsertion() {
+        insertTimer.stop()
+        insertCandidate = null
+        insertPreview = null
+    }
+
+    /// Insert a node created at position on the edge under it (8 px screen tolerance), if any
+    function insertCreatedNode(node, position) {
+        if (!GraphEditorSettings.insertOnEdge)
+            return
+        const t = 8 / draggable.scale
+        const insertion = insertionAt(node, [[Qt.point(position.x - t, position.y), Qt.point(position.x + t, position.y)],
+                                             [Qt.point(position.x, position.y - t), Qt.point(position.x, position.y + t)]])
+        if (insertion)
+            uigraph.insertNodeOnEdge(node, insertion.edge)
+    }
+
+    // Only runs while a node is dragged over an edge
+    Timer {
+        id: insertTimer
+        interval: 150
+        onTriggered: root.insertPreview = root.insertCandidate
     }
 
     // Signals
@@ -259,7 +352,37 @@ Item {
                 newNodeMenu.spawnPosition = mouseArea.mapToItem(draggable, mouseArea.mouseX, mouseArea.mouseY)
                 newNodeMenu.popup()
             }
+        } else if (event.key === Qt.Key_K) {
+            if (!event.isAutoRepeat && !knifeKeyHeld) {
+                knifeKeyHeld = true
+                // Auto-repeat not flagged as such (e.g. remote X display): a release and a press a few ms apart
+                if (Date.now() - knifeReleaseTime > 100) {
+                    knifeUsed = false
+                    knifePressTime = Date.now()
+                }
+            }
+        } else if (event.key === Qt.Key_Escape) {
+            knifeArmed = false
+            if (edgeSelectionLine.active) {
+                edgeSelectionLine.cancelSelection()
+                mouseArea.removingEdges = false
+            }
+        } else if (event.key === Qt.Key_Question || (event.key === Qt.Key_Slash && event.modifiers & Qt.ShiftModifier)) {
+            shortcutsOverlay.open()
         } else if (event.key === Qt.Key_G && event.modifiers === Qt.ShiftModifier) { workspaceGrid.showGrid = !workspaceGrid.showGrid }
+    }
+
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_K && !event.isAutoRepeat && knifeKeyHeld) {
+            knifeKeyHeld = false
+            knifeReleaseTime = Date.now()
+            knifeArmed = !knifeUsed && Date.now() - knifePressTime < 300
+        }
+    }
+
+    GraphShortcutsOverlay {
+        id: shortcutsOverlay
+        onClosed: root.forceActiveFocus()
     }
 
     MouseArea {
@@ -275,7 +398,7 @@ Item {
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         drag.threshold: 0
         drag.smoothed: false
-        cursorShape: drag.target == draggable ? Qt.ClosedHandCursor : removingEdges ? Qt.CrossCursor : Qt.ArrowCursor
+        cursorShape: drag.target == draggable ? Qt.ClosedHandCursor : removingEdges || root.knifeActive ? Qt.CrossCursor : Qt.ArrowCursor
 
         onWheel: function(wheel) {
             var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1 / factor
@@ -291,6 +414,15 @@ Item {
         }
 
         onPressed: function(mouse) {
+            // Knife: K held or tapped, or Ctrl+Alt
+            if (mouse.button == Qt.LeftButton && (root.knifeActive || ((mouse.modifiers & Qt.ControlModifier) && (mouse.modifiers & Qt.AltModifier)))) {
+                root.knifeUsed = root.knifeKeyHeld
+                root.knifeArmed = false
+                edgeSelectionLine.startSelection(mouse)
+                removingEdges = true
+                root.forceActiveFocus()
+                return
+            }
             if (mouse.button != Qt.MiddleButton && mouse.modifiers == Qt.NoModifier) {
                 uigraph.clearNodeSelection()
             }
@@ -299,10 +431,6 @@ Item {
             }
             if (mouse.button == Qt.MiddleButton || (mouse.button == Qt.LeftButton && mouse.modifiers & Qt.AltModifier)) {
                 drag.target = draggable // start drag
-            }
-            if (mouse.button == Qt.LeftButton && (mouse.modifiers & Qt.ControlModifier) && (mouse.modifiers & Qt.AltModifier)) {
-                edgeSelectionLine.startSelection(mouse)
-                removingEdges = true
             }
         }
 
@@ -341,7 +469,11 @@ Item {
                 // If it is not a pipeline to import, then it must be a node
                 if (!importPipeline(nodeType)) {
                     // Add node via the proper command in uigraph
+                    // Creation and insertion on the edge under the spawn position: a single undo step
+                    uigraph.beginModification("Create " + nodeType)
                     var node = uigraph.addNewNode(nodeType, spawnPosition)
+                    root.insertCreatedNode(node, spawnPosition)
+                    uigraph.endModification()
                     uigraph.selectedNode = node
                     uigraph.selectNodes([node])
                 }
@@ -651,7 +783,7 @@ Item {
 
                     MaterialToolButton {
                         font.pointSize: 13
-                        ToolTip.text: "Remove Edge"
+                        ToolTip.text: GraphShortcuts.hint("Remove", "removeEdge") + "\n" + GraphShortcuts.hint("Cut", "cut")
                         enabled: edgeMenu.currentEdge && !edgeMenu.currentEdge.dst.node.locked && !edgeMenu.currentEdge.dst.isReadOnly
                         text: MaterialIcons.delete_
                         onClicked: {
@@ -773,10 +905,12 @@ Item {
                     loopSize: forLoop ? loopSource.value.count : 0
 
                     iteration: forLoop ? loopSource.value.indexOf(edge.src) : 0
-                    color: edge.dst === root.edgeAboutToBeRemoved ? Colors.red : GraphTheme.dataTypeColor(edge.src.dataType)
-                    thickness: forLoop ? 5 : (inFocus || incident) ? 3 : 2
+                    cut: edgeSelectionLine.hitSet.has(index) && !root.isEdgeLocked(edge)
+                    highlighted: !!root.insertPreview && root.insertPreview.edge === edge
+                    color: cut ? GraphTheme.edgeCut : edge.dst === root.edgeAboutToBeRemoved ? Colors.red : GraphTheme.dataTypeColor(edge.src.dataType)
+                    thickness: forLoop ? 5 : highlighted ? 4 : (inFocus || incident) ? 3 : 2
                     // Contextual dimming is suspended while an edge is being dragged
-                    opacity: root.draggedAttribute || root.activeNodeNames.size === 0 || incident ? 1.0 : 0.3
+                    opacity: root.draggedAttribute || root.activeNodeNames.size === 0 || incident || highlighted ? 1.0 : 0.3
                     dataState: {
                         const srcStatus = edge.src.node.globalStatus
                         if (srcStatus === "SUCCESS" && edge.dst.node.globalStatus === "RUNNING")
@@ -821,6 +955,7 @@ Item {
                     readonly property var srcItem: root._nodeToDelegate.get(modelData.src)
                     readonly property var dstItem: root._nodeToDelegate.get(modelData.dst)
                     readonly property bool isValidEdge: !!srcItem && !!dstItem
+                    readonly property bool cut: root.knifeHits.pairs.has(modelData.src.name + ">" + modelData.dst.name)
 
                     visible: isValidEdge
                     vendorExtensionsEnabled: false
@@ -830,7 +965,8 @@ Item {
                         startX: isValidEdge ? srcItem.outputPort.globalX + srcItem.outputPort.outputAnchorPos.x : 0
                         startY: isValidEdge ? srcItem.outputPort.globalY + srcItem.outputPort.outputAnchorPos.y : 0
                         fillColor: "transparent"
-                        strokeColor: GraphTheme.nodeTextSecondary
+                        strokeColor: cut ? GraphTheme.edgeCut : GraphTheme.nodeTextSecondary
+                        strokeStyle: cut ? ShapePath.DashLine : ShapePath.SolidLine
                         // Screen pixels
                         strokeWidth: Math.min(2 + modelData.count, 8) / draggable.scale
                         capStyle: ShapePath.RoundCap
@@ -1076,7 +1212,7 @@ Item {
                     MenuItem {
                         text: "Disconnect Node(s)"
                         enabled: true
-                        ToolTip.text: "Disconnect all edges from the selected Node(s)"
+                        ToolTip.text: GraphShortcuts.hint("Disconnect all edges from the selected Node(s)", "disconnect")
                         ToolTip.visible: hovered
                         onTriggered: uigraph.disconnectSelectedNodes()
                     }
@@ -1084,6 +1220,8 @@ Item {
                         text: "Duplicate Node(s)" + (duplicateFollowingButton.hovered ? " From Here" : "")
                         enabled: true
                         onTriggered: duplicateNode(false)
+                        ToolTip.text: GraphShortcuts.hint("Duplicate", "duplicate")
+                        ToolTip.visible: hovered && !duplicateFollowingButton.hovered
                         MaterialToolButton {
                             id: duplicateFollowingButton
                             height: parent.height
@@ -1102,6 +1240,8 @@ Item {
                         text: "Remove Node(s)" + (removeFollowingButton.hovered ? " From Here" : "")
                         enabled: !nodeMenu.currentNode.locked
                         onTriggered: uigraph.removeSelectedNodes()
+                        ToolTip.text: GraphShortcuts.hint("Remove", "remove")
+                        ToolTip.visible: hovered && !removeFollowingButton.hovered
                         MaterialToolButton {
                             id: removeFollowingButton
                             height: parent.height
@@ -1195,6 +1335,8 @@ Item {
                 property bool ongoingDrag: false
                 property bool updateSelectionOnClick: false
                 property var temporaryEdgeAboutToBeRemoved: undefined
+                // Modifiers of the last node press/release: Alt at the drop prevents the insertion on an edge
+                property int dropModifiers: Qt.NoModifier
 
                 function getItemAt(index) {
                     const loader = itemAt(index)
@@ -1232,6 +1374,7 @@ Item {
 
                             // Connection guide: dim the nodes without any compatible pin (except the dragged edge's node)
                             compatibleAttributeUuids: root.compatibleAttributeUuids
+                            insertAttributeUuids: root.insertPreview ? root.insertPreview.uuids : null
                             opacity: root.compatibleNodeNames && !root.compatibleNodeNames.has(node.name) && root.draggedAttribute.node !== node ? 0.35 : 1.0
                             onConnectionDragChanged: function(attribute, connectorType, dragItem) { root.setConnectionDrag(attribute, connectorType, dragItem) }
                             onDropTargetChanged: function(attribute, reason) {
@@ -1246,6 +1389,7 @@ Item {
                             onPressed: function(mouse) {
                                 nodeRepeater.updateSelectionOnClick = true
                                 nodeRepeater.ongoingDrag = true
+                                nodeRepeater.dropModifiers = mouse.modifiers
 
                                 let selectionMode = ItemSelectionModel.NoUpdate
 
@@ -1295,6 +1439,7 @@ Item {
 
                             onReleased: function(mouse, wasDragged) {
                                 nodeRepeater.ongoingDrag = false
+                                nodeRepeater.dropModifiers = mouse.modifiers
                             }
 
                             // Only called when the node has not been dragged.
@@ -1340,6 +1485,7 @@ Item {
 
                                 // Check for shake on the node
                                 checkForShake()
+                                root.updateInsertCandidate(nodeDelegate)
 
                                 // Compute offset between the delegate and the stored node position.
                                 const offset = Qt.point(x - node.x, y - node.y)
@@ -1356,7 +1502,17 @@ Item {
                             // After drag: apply the final offset to all selected nodes
                             onMoved: function(position) {
                                 const offset = Qt.point(position.x - node.x, position.y - node.y)
-                                uigraph.moveSelectedNodesBy(offset)
+                                const insertion = root.insertPreview
+                                root.clearInsertion()
+                                // Drop on a previewed edge inserts the node, unless Alt is held
+                                if (insertion && !(nodeRepeater.dropModifiers & Qt.AltModifier)) {
+                                    uigraph.beginModification("Insert " + node.label + " on Edge")
+                                    uigraph.moveSelectedNodesBy(offset)
+                                    uigraph.insertNodeOnEdge(node, insertion.edge)
+                                    uigraph.endModification()
+                                } else {
+                                    uigraph.moveSelectedNodesBy(offset)
+                                }
                             }
 
                             Behavior on x {
@@ -1535,6 +1691,27 @@ Item {
             container: draggable
             onDelegateSelectionEnded: function(selectedIndices, modifiers) {
                 uigraph.deleteEdgesByIndices(selectedIndices)
+            }
+        }
+
+        // Knife counters, next to the cursor
+        Rectangle {
+            visible: edgeSelectionLine.active
+            x: edgeSelectionLine.p2.x + 14
+            y: edgeSelectionLine.p2.y + 14
+            width: knifeLabel.implicitWidth + 12
+            height: knifeLabel.implicitHeight + 6
+            radius: 3
+            color: activePalette.window
+            border.color: GraphTheme.edgeCut
+
+            Label {
+                id: knifeLabel
+                anchors.centerIn: parent
+                font.family: GraphTheme.monoFamily
+                font.pointSize: 8
+                color: GraphTheme.edgeCut
+                text: "\u2702 " + root.knifeHits.count + (root.knifeHits.locked > 0 ? " \u00B7 " + root.knifeHits.locked + " locked" : "")
             }
         }
 

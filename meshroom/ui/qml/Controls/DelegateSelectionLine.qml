@@ -14,10 +14,13 @@ SelectionLine {
     property Item modelInstantiator
     // The Item containing the delegates (used for coordinate mapping).
     property Item container
+    // Indices of the delegates intersected by the current segment, updated at most once per frame during the selection.
+    property var hitIndices: []
+    readonly property var hitSet: new Set(hitIndices)
     // Emitted when the selection has ended, with the list of selected indices and modifiers.
     signal delegateSelectionEnded(list<int> indices, int modifiers)
 
-    onSelectionEnded: function(selectionP1, selectionP2, modifiers) {
+    function intersectedIndices(selectionP1, selectionP2) {
         let selectedIndices = [];
         const mappedP1 = mapToItem(container, selectionP1);
         const mappedP2 = mapToItem(container, selectionP2);
@@ -27,6 +30,29 @@ SelectionLine {
                 selectedIndices.push(i);
             }
         }
-        delegateSelectionEnded(selectedIndices, modifiers);
+        return selectedIndices;
+    }
+
+    onP2Changed: segmentMoved = true
+    onActiveChanged: hitIndices = []
+
+    property bool segmentMoved: false
+
+    // Live hit test: only runs during the selection
+    FrameAnimation {
+        running: root.active
+        onTriggered: {
+            if (!root.segmentMoved)
+                return;
+            root.segmentMoved = false;
+            const indices = root.intersectedIndices(root.p1, root.p2);
+            // Only notify the bindings when the hits change
+            if (indices.join() !== root.hitIndices.join())
+                root.hitIndices = indices;
+        }
+    }
+
+    onSelectionEnded: function(selectionP1, selectionP2, modifiers) {
+        delegateSelectionEnded(intersectedIndices(selectionP1, selectionP2), modifiers);
     }
 }
