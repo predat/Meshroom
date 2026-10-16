@@ -21,4 +21,7 @@ Settings {
     property real lodOverviewThreshold: 0.4
     // Dropping a node (moved or created from the menu) on a compatible edge inserts it
     property bool insertOnEdge: true
+    property bool showMinimap: true
+    // Command palette recent items, as a JSON list of "node:<type>" / "pipeline:<name>" (most recent first)
+    property string paletteRecents: "[]"
 }

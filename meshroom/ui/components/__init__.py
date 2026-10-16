@@ -7,6 +7,7 @@ def registerTypes():
     from meshroom.ui.components.scene3D import Scene3DHelper, TrackballController, Transformations3DHelper
     from meshroom.ui.components.csvData import CsvData
     from meshroom.ui.components.geom2D import Geom2D
+    from meshroom.ui.components.fuzzy import FuzzyMatcher
     from meshroom.ui.components.scriptEditor import PySyntaxHighlighter
     from meshroom.ui.components.logLinesModel import LogLinesModel, LogLevelEnum
     from meshroom.core.node import ChunkIndexEnum
@@ -22,6 +23,7 @@ def registerTypes():
     qmlRegisterType(PySyntaxHighlighter, "ScriptEditor", 1, 0, "PySyntaxHighlighter")
 
     qmlRegisterSingletonType(Geom2D, "Meshroom.Helpers", 1, 0, "Geom2D")
+    qmlRegisterSingletonType(FuzzyMatcher, "Meshroom.Helpers", 1, 0, "FuzzyMatcher")
     qmlRegisterSingletonType(LogLevelEnum, "DataObjects", 1, 0, "LogLevelEnum")
 
     qmlRegisterSingletonType(ChunkIndexEnum, "Node", 1, 0, "ChunkIndexEnum")

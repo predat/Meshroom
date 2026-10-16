@@ -18,3 +18,5 @@ TaskManager 1.0 TaskManager.qml
 ScriptEditor 1.0 ScriptEditor.qml
 NodeFileBrowser 1.0 NodeFileBrowser.qml
 GraphShortcutsOverlay 1.0 GraphShortcutsOverlay.qml
+CommandPalette 1.0 CommandPalette.qml
+GraphMinimap 1.0 GraphMinimap.qml

@@ -965,6 +965,19 @@ Page {
                     }
 
                     MenuItem {
+                        text: "Minimap"
+                        checkable: true
+                        checked: GraphEditorSettings.showMinimap
+                        onToggled: GraphEditorSettings.showMinimap = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Show an overview of the graph in the Graph Editor (hidden when the whole graph is in view)"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
+                    MenuItem {
                         text: "Insert on Edge"
                         checkable: true
                         checked: GraphEditorSettings.insertOnEdge
@@ -1591,6 +1604,17 @@ Page {
                             } else {
                                 _currentScene.handleFilesUrl(filesByType, null, mousePosition)
                             }
+                        }
+                    }
+
+                    // Command palette (Ctrl+K), from anywhere in the application
+                    Shortcut {
+                        sequence: "Ctrl+K"
+                        context: Qt.ApplicationShortcut
+                        onActivated: {
+                            graphEditorVisibilityCB.checked = true
+                            graphEditorPanel.currentTab = 0
+                            graphEditor.openCommandPalette(false)
                         }
                     }
 
