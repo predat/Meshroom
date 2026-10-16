@@ -30,27 +30,32 @@ RowLayout {
     readonly property point outputAnchorPos: Qt.point(outputAnchor.x + root.pinOffset + outputAnchor.width / 2,
                                                       outputAnchor.y + outputAnchor.height / 2)
 
-    // Pins are larger than the row: they overflow it without changing the layout
-    readonly property real rowHeight: 8
+    readonly property real rowHeight: 16
     readonly property real pinSize: 10
     // Non-compact pins straddle the node border: shifted outward by half a pin plus the 1 px inset of the attributes
     readonly property real pinOffset: compact ? 0 : pinSize / 2 + 1
-    readonly property color typeColor: GraphTheme.dataTypeColor(attribute ? attribute.dataType : "")
+    readonly property color typeColor: compact ? (nodeItem ? nodeItem.headerTextSecondaryColor : GraphTheme.nodeTextSecondary) : GraphTheme.dataTypeColor(attribute ? attribute.dataType : "", nodeItem ? nodeItem.bodyColor : undefined)
 
     // Connection capture zone around the pin center: 24 px wide, and vertically up to halfway to the neighbour
-    // rows (rows are 3 px apart), extended to 12 px above the first row and below the last one
+    // rows (adjacent rows, or across the outputs/inputs gap), extended to 12 px above the first row and below the last one
     readonly property real captureHalfWidth: 12
     readonly property real relativeY: typeof globalY !== "undefined" && nodeItem ? globalY - nodeItem.y : -1
     readonly property bool isFirstRow: !!nodeItem && Math.abs(relativeY - nodeItem.attributesTop) < 1
     readonly property bool isLastRow: !!nodeItem && relativeY + rowHeight > nodeItem.attributesBottom - 1
-    readonly property real captureTop: isFirstRow ? captureHalfWidth : rowHeight / 2 + 1.5
-    readonly property real captureBottom: isLastRow ? captureHalfWidth : rowHeight / 2 + 1.5
+    readonly property real halfGap: nodeItem ? (nodeItem.attributesGapBottom - nodeItem.attributesGapTop) / 2 : 0
+    readonly property real captureTop: !nodeItem || isFirstRow ? captureHalfWidth
+                                                  : rowHeight / 2 + (Math.abs(relativeY - nodeItem.attributesGapBottom) < 1 ? halfGap : 0)
+    readonly property real captureBottom: !nodeItem || isLastRow ? captureHalfWidth
+                                                    : rowHeight / 2 + (Math.abs(relativeY + rowHeight - nodeItem.attributesGapTop) < 1 ? halfGap : 0)
 
     // Connection guide, set by the Graph Editor while an edge is being dragged
     readonly property bool isDragSource: inputConnectMA.dragTriggered || outputConnectMA.dragTriggered
     readonly property bool guiding: !!nodeItem && !!nodeItem.compatibleAttributeUuids
     readonly property bool isCompatible: guiding && nodeItem.compatibleAttributeUuids.has(attribute.uuid)
-    opacity: guiding && !isCompatible && !isDragSource ? 0.35 : 1.0
+    // Header flow pins (compact) are hidden unless connected, the node hovered or a compatible drag target;
+    // their drag zone stays active while hidden
+    readonly property bool hiddenFlowPin: compact && !isConnected && !isDragSource && !isCompatible && !(nodeItem && nodeItem.hovered)
+    opacity: hiddenFlowPin ? 0 : guiding && !isCompatible && !isDragSource ? 0.35 : 1.0
 
     readonly property bool isList: attribute && attribute.type === "ListAttribute"
     readonly property bool isExpandable: attribute && attribute.isExpandable === true
@@ -190,6 +195,11 @@ RowLayout {
     spacing: 3
     height: rowHeight
 
+    HoverHandler {
+        id: rowHover
+        enabled: root.displayOutputPinForInput && !root.attribute.isOutput
+    }
+
     // Children connected under a collapsed group
     function hasConnectedChildren(output) {
         if (!root.isExpandable || root.expanded || root.isConnected || !attribute)
@@ -232,6 +242,7 @@ RowLayout {
 
         PinShape {
             id: inputAnchor
+            outlined: !!root.nodeItem && GraphTheme.contrast(root.typeColor, root.nodeItem.bodyColor) < 3
             visible: !root.attribute.isOutput
 
             x: -root.pinOffset
@@ -241,6 +252,7 @@ RowLayout {
             pinColor: root.typeColor
             isList: root.isList
             isGroup: root.isExpandable
+            isFlow: root.compact
             filled: root.attribute.hasAnyInputLinks
             halfFilled: root.hasConnectedChildren(false)
             hovered: inputConnectMA.containsMouse || inputConnectMA.drag.active || (inputDropArea.containsDrag && inputDropArea.acceptableDrop)
@@ -412,13 +424,15 @@ RowLayout {
                 } else if (hovered) {
                     return palette.highlight
                 }
-                return palette.text
+                return root.nodeItem ? root.nodeItem.textColor : palette.text
             }
             labelIconMouseArea.enabled: false  // Prevent mixing mouse interactions between the label and the pin context
 
             // Text
             label.text: root.attribute.label
-            label.font.pointSize: 7
+            label.font.family: GraphTheme.fontFamily
+            label.font.weight: Font.Normal
+            label.font.pointSize: 9
             label.elide: hovered ? Text.ElideNone : Text.ElideMiddle
             label.horizontalAlignment: root.attribute && root.attribute.isOutput ? Text.AlignRight : Text.AlignLeft
             label.verticalAlignment: Text.AlignVCenter
@@ -432,7 +446,7 @@ RowLayout {
                 }
                 return ""
             }
-            iconSize: 7
+            iconSize: 9
             icon.horizontalAlignment: root.attribute && root.attribute.isOutput ? Text.AlignRight : Text.AlignLeft
             icon.verticalAlignment: Text.AlignVCenter
 
@@ -459,8 +473,13 @@ RowLayout {
 
     PinShape {
         id: outputAnchor
+        outlined: !!root.nodeItem && GraphTheme.contrast(root.typeColor, root.nodeItem.bodyColor) < 3
 
         visible: root.displayOutputPinForInput || root.attribute.isOutput
+        // Output pin of an input attribute: only shown when it carries an edge, the row is hovered or during a
+        // compatible drag; its drag zone stays active while hidden
+        opacity: root.attribute.isOutput || root.compact || root.attribute.hasAnyOutputLinks || rowHover.hovered || root.isCompatible ||
+                 outputConnectMA.containsMouse || outputConnectMA.drag.active ? 1 : 0
         size: root.pinSize
         Layout.alignment: Qt.AlignVCenter
         // Straddle the node border without changing the layout
@@ -469,6 +488,7 @@ RowLayout {
         pinColor: root.typeColor
         isList: root.isList
         isGroup: root.isExpandable
+        isFlow: root.compact
         filled: root.attribute.hasAnyOutputLinks
         halfFilled: root.hasConnectedChildren(true)
         hovered: root.attribute.enabled && (outputConnectMA.containsMouse || outputConnectMA.drag.active ||

@@ -1398,6 +1398,7 @@ Item {
             Label {
                 id: dragInfoLabel
                 anchors.centerIn: parent
+                font.family: GraphTheme.monoFamily
                 font.pointSize: 8
                 color: !connectionDragInfo.onTarget ? activePalette.text : root.dropTargetReason ? Colors.red : Colors.green
                 text: {
@@ -1592,8 +1593,10 @@ Item {
                         var maxY = -Number.MAX_VALUE
                         for (var i = 0; i < selectedNodes.length; i++) {
                             var n = selectedNodes[i]
-                            var nw = n.nodeWidth > 0 ? n.nodeWidth : uigraph.layout.nodeWidth
-                            var nh = n.nodeHeight > 0 ? n.nodeHeight : uigraph.layout.nodeHeight
+                            // Actual delegate size: node heights vary with their visible attributes
+                            var item = nodeDelegate(n)
+                            var nw = item ? item.width : uigraph.layout.nodeWidth
+                            var nh = item ? item.height : uigraph.layout.nodeHeight
                             minX = Math.min(minX, n.x)
                             minY = Math.min(minY, n.y)
                             maxX = Math.max(maxX, n.x + nw)

@@ -385,8 +385,8 @@ class GraphLayout(QObject):
         super().__init__(graph)
         self.graph = graph
         self._depthMode = GraphLayout.DepthMode.MaxDepth
-        self._nodeWidth = 160  # implicit node width
-        self._nodeHeight = 120   # implicit node height
+        self._nodeWidth = 180  # implicit node width
+        self._nodeHeight = 170   # implicit node height, covers a node with ~9 visible attributes
         self._gridSpacing = 40  # column/line spacing between nodes
 
     @Slot(Node, Node, int, int)

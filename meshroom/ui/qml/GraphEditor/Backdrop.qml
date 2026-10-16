@@ -457,7 +457,9 @@ Item {
                             padding: 4
                             color: "#2b2b2b"
                             elide: Text.ElideMiddle
-                            font.pointSize: 8
+                            font.family: GraphTheme.headerFamily
+                            font.weight: Font.DemiBold
+                            font.pointSize: 10
                         }
                     }
 
