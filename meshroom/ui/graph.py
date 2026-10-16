@@ -1381,6 +1381,22 @@ class UIGraph(QObject):
                         self.removeEdge(edge)
             self.push(commands.SetAttributeCommand(self._graph, attribute, attribute.getDefaultValue()))
 
+    @Slot("QVariantList", result=int)
+    def resetAttributes(self, attributes):
+        """
+        Reset the given attributes to their default value, in a single undo step.
+        Linked, read-only and already default attributes are left untouched.
+
+        Returns:
+            int: the number of reset attributes
+        """
+        toReset = [a for a in attributes if not a.isDefault and not a.isLink and not a.isReadOnly]
+        if toReset:
+            with self.groupedGraphModification(f"Reset {len(toReset)} Attribute(s)"):
+                for attribute in toReset:
+                    self.resetAttribute(attribute)
+        return len(toReset)
+
     @Slot(Attribute, str, "QVariant")
     def addAttributeKeyValue(self, attribute, key, value):
         """ Add the given (key, value) pair to the given keyable attribute. """

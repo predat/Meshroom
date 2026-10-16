@@ -13,6 +13,17 @@ ListView {
     property int labelWidth: 180
     property bool objectsHideable: true
     property string filterText: ""
+    /// Group of attributes to list: "main" (inputs), "advanced" (advanced inputs), "outputs", or "" for all
+    property string attributeGroup: ""
+
+    function inGroup(attribute) {
+        switch (attributeGroup) {
+            case "main": return !attribute.isOutput && !attribute.desc.advanced
+            case "advanced": return !attribute.isOutput && attribute.desc.advanced
+            case "outputs": return attribute.isOutput
+        }
+        return true
+    }
 
     signal upgradeRequest()
     signal attributeDoubleClicked(var mouse, var attribute)
@@ -29,7 +40,7 @@ ListView {
     delegate: Loader {
         active: !object.hasDisplayableShape && (object.enabled || object.hasAnyOutputLinks) && (
             !objectsHideable
-            || ((!object.desc.advanced || GraphEditorSettings.showAdvancedAttributes)
+            || (root.inGroup(object)
             && (object.isDefault && GraphEditorSettings.showDefaultAttributes || !object.isDefault && GraphEditorSettings.showModifiedAttributes)
             && (object.isOutput && GraphEditorSettings.showOutputAttributes || !object.isOutput && GraphEditorSettings.showInputAttributes)
             && (object.hasAnyInputLinks && GraphEditorSettings.showLinkAttributes || !object.isLink && GraphEditorSettings.showNotLinkAttributes))

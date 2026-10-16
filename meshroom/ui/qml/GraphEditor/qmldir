@@ -15,3 +15,5 @@ singleton GraphEditorSettings 1.0 GraphEditorSettings.qml
 TaskManager 1.0 TaskManager.qml
 ScriptEditor 1.0 ScriptEditor.qml
 NodeFileBrowser 1.0 NodeFileBrowser.qml
+GroupedAttributeEditor 1.0 GroupedAttributeEditor.qml
+AttributeModifiedBadge 1.0 AttributeModifiedBadge.qml
