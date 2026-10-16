@@ -143,6 +143,23 @@ Page {
         return nodes
     }
 
+    /// Show the Graph Editor panel, for the Graph Editor actions triggered from anywhere in the application
+    // TODO: adapt to the dock API of #3190 (dockable panels): the only code of Ctrl+K that depends on the layout
+    function ensureGraphEditorVisible() {
+        graphEditorVisibilityCB.checked = true
+        graphEditorPanel.currentTab = 0
+    }
+
+    // Command palette (Ctrl+K), from anywhere in the application
+    Shortcut {
+        sequence: "Ctrl+K"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            ensureGraphEditorVisible()
+            graphEditor.openCommandPalette()
+        }
+    }
+
     // File dialogs
     Platform.FileDialog {
         id: saveFileDialog
@@ -959,6 +976,32 @@ Page {
                         ToolTip {
                             visible: parent.hovered
                             text: "Simplify the nodes and the edges when zooming out in the Graph Editor"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
+                    MenuItem {
+                        text: "Command Palette"
+                        checkable: true
+                        checked: GraphEditorSettings.commandPalette
+                        onToggled: GraphEditorSettings.commandPalette = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Tab and right-click on the Graph Editor open the command palette (Ctrl+K always does), or else the node creation menu"
+                            x: parent.implicitWidth
+                            y: 0
+                        }
+                    }
+
+                    MenuItem {
+                        text: "Minimap"
+                        checkable: true
+                        checked: GraphEditorSettings.showMinimap
+                        onToggled: GraphEditorSettings.showMinimap = checked
+                        ToolTip {
+                            visible: parent.hovered
+                            text: "Show an overview of the graph in the Graph Editor (hidden when the whole graph is in view)"
                             x: parent.implicitWidth
                             y: 0
                         }

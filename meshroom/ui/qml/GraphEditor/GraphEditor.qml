@@ -314,6 +314,127 @@ Item {
         return mapToItem(draggable, mouseArea.width / 2, mouseArea.height / 2)
     }
 
+    /// Open the command palette; created nodes go at the cursor if it is over the graph, at the center otherwise
+    function openCommandPalette(createMode = false) {
+        commandPalette.spawnPosition = mouseArea.containsMouse ? mouseArea.mapToItem(draggable, mouseArea.mouseX, mouseArea.mouseY)
+                                                               : getCenterPosition()
+        commandPalette.openPalette(createMode)
+    }
+
+    /// Create a node at position (in draggable coordinates), inserted on the edge under it if any, and select it
+    function createNode(nodeType, position) {
+        // Creation and insertion on the edge under the spawn position: a single undo step
+        uigraph.beginModification("Create " + nodeType)
+        const node = uigraph.addNewNode(nodeType, position)
+        insertCreatedNode(node, position)
+        uigraph.endModification()
+        uigraph.selectedNode = node
+        uigraph.selectNodes([node])
+    }
+
+    function importPipeline(pipeline, position) {
+        const url = MeshroomApp.pipelineTemplateFiles[MeshroomApp.pipelineTemplateNames.indexOf(pipeline)]["path"]
+        const nodes = uigraph.importProject(Filepath.stringToUrl(url), position)
+        uigraph.selectedNode = nodes[0]
+        uigraph.selectNodes(nodes)
+    }
+
+    /// Zoom by factor (clamped to the zoom range) around the point (x, y) of the view
+    function zoomAt(x, y, factor) {
+        const scale = Math.min(Math.max(minZoom, draggable.scale * factor), maxZoom)
+        if (draggable.scale == scale)
+            return
+        const point = mapToItem(draggable, x, y)
+        const zoomFactor = scale / draggable.scale
+        draggable.x += (1 - zoomFactor) * point.x * draggable.scale
+        draggable.y += (1 - zoomFactor) * point.y * draggable.scale
+        draggable.scale = scale
+        workspaceMoved()
+    }
+
+    /// Center the view on a point of the graph (draggable coordinates)
+    function centerOn(point) {
+        draggable.x = root.width / 2 - point.x * draggable.scale
+        draggable.y = root.height / 2 - point.y * draggable.scale
+        workspaceMoved()
+    }
+
+    /// Fit a node delegate in the view, zoom limited to prevent huge text
+    function fitNode(nodeItem) {
+        const bbox = footprint(nodeItem)
+        draggable.scale = Math.min(Math.min(root.width / bbox.width, root.height / bbox.height), maxZoom)
+        draggable.x = bbox.x * draggable.scale * -1 + (root.width - bbox.width * draggable.scale) * 0.5
+        draggable.y = bbox.y * draggable.scale * -1 + (root.height - bbox.height * draggable.scale) * 0.5
+    }
+
+    /// Add a backdrop around the selected nodes, or at the center of the view
+    function addBackdrop() {
+        var selectedNodes = uigraph.getSelectedNodes()
+        var backdrop
+        if (selectedNodes.length > 0) {
+            // Calculate bounding box of selected nodes
+            var padding = uigraph.layout.gridSpacing * 0.5
+            var minX = Number.MAX_VALUE
+            var minY = Number.MAX_VALUE
+            var maxX = -Number.MAX_VALUE
+            var maxY = -Number.MAX_VALUE
+            for (var i = 0; i < selectedNodes.length; i++) {
+                var n = selectedNodes[i]
+                // Node footprint, constant whatever the level of detail (actual size for backdrops)
+                var item = nodeDelegate(n)
+                var nw = item ? item.width : uigraph.layout.nodeWidth
+                var nh = item ? footprint(item).height : uigraph.layout.nodeHeight
+                minX = Math.min(minX, n.x)
+                minY = Math.min(minY, n.y)
+                maxX = Math.max(maxX, n.x + nw)
+                maxY = Math.max(maxY, n.y + nh)
+            }
+            var bboxX = minX - padding
+            var bboxY = minY - 2 * padding  // minus padding and title bar height
+            var bboxW = Math.round(maxX - minX + 2 * padding)
+            var bboxH = Math.round(maxY - minY + 2 * padding)
+            backdrop = uigraph.addBackdropNode(Qt.point(bboxX, bboxY), bboxW, bboxH)
+        } else {
+            backdrop = uigraph.addNewNode("Backdrop", getCenterPosition())
+        }
+        uigraph.selectedNode = backdrop
+        uigraph.selectNodes([backdrop])
+    }
+
+    /// Run a command palette action (GraphShortcuts entries with a "command" label)
+    function runAction(action) {
+        switch (action) {
+            case "fit": fit(); break
+            case "help": shortcutsOverlay.open(); break
+            case "duplicate": duplicateNode(false); break
+            case "remove": uigraph.removeSelectedNodes(); break
+            case "disconnect": uigraph.disconnectSelectedNodes(); break
+            case "autoLayout": uigraph.layout.reset(); break
+            // An empty node list would mean the whole graph
+            case "compute": if (uigraph.nodeSelection.hasSelection) computeRequest(uigraph.getSelectedNodes()); break
+            case "submit": if (uigraph.nodeSelection.hasSelection) submitRequest(uigraph.getSelectedNodes()); break
+            case "addBackdrop": addBackdrop(); break
+            case "alignVertically": uigraph.alignVertically(); break
+            case "alignHorizontally": uigraph.alignHorizontally(); break
+            case "minimap": GraphEditorSettings.showMinimap = !GraphEditorSettings.showMinimap; break
+            case "zoomReset": zoomAt(root.width / 2, root.height / 2, 1 / draggable.scale); break
+            case "selectErrors": {
+                const nodes = []
+                for (let i = 0; i < graph.nodes.count; ++i) {
+                    if (graph.nodes.at(i).globalStatus === "ERROR")
+                        nodes.push(graph.nodes.at(i))
+                }
+                uigraph.selectNodes(nodes)
+                if (nodes.length > 0) {
+                    uigraph.selectedNode = nodes[0]
+                    fit()
+                }
+                break
+            }
+            default: console.warn("Unknown Graph Editor action: " + action)
+        }
+    }
+
     Keys.onPressed: function(event) {
         if (event.key === Qt.Key_F) {
             fit()
@@ -348,7 +469,9 @@ Item {
             uigraph.alignHorizontally()
         } else if (event.key === Qt.Key_Tab) {
             event.accepted = true
-            if (mouseArea.containsMouse) {
+            if (GraphEditorSettings.commandPalette) {
+                openCommandPalette(false)
+            } else if (mouseArea.containsMouse) {
                 newNodeMenu.spawnPosition = mouseArea.mapToItem(draggable, mouseArea.mouseX, mouseArea.mouseY)
                 newNodeMenu.popup()
             }
@@ -401,16 +524,7 @@ Item {
         cursorShape: drag.target == draggable ? Qt.ClosedHandCursor : removingEdges || root.knifeActive ? Qt.CrossCursor : Qt.ArrowCursor
 
         onWheel: function(wheel) {
-            var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1 / factor
-            var scale = draggable.scale * zoomFactor
-            scale = Math.min(Math.max(minZoom, scale), maxZoom)
-            if (draggable.scale == scale)
-                return
-            var point = mapToItem(draggable, wheel.x, wheel.y)
-            draggable.x += (1 - zoomFactor) * point.x * draggable.scale
-            draggable.y += (1 - zoomFactor) * point.y * draggable.scale
-            draggable.scale = scale
-            workspaceMoved()
+            root.zoomAt(wheel.x, wheel.y, wheel.angleDelta.y > 0 ? factor : 1 / factor)
         }
 
         onPressed: function(mouse) {
@@ -451,8 +565,15 @@ Item {
         onClicked: function(mouse) {
             if (mouse.button == Qt.RightButton) {
                 // Store mouse click position in 'draggable' coordinates as new node spawn position
-                newNodeMenu.spawnPosition = mouseArea.mapToItem(draggable, mouse.x, mouse.y)
-                newNodeMenu.popup()
+                const spawnPosition = mouseArea.mapToItem(draggable, mouse.x, mouse.y)
+                if (GraphEditorSettings.commandPalette) {
+                    // Create mode: the node is created at the click position
+                    commandPalette.spawnPosition = spawnPosition
+                    commandPalette.openPalette(true)
+                } else {
+                    newNodeMenu.spawnPosition = spawnPosition
+                    newNodeMenu.popup()
+                }
             }
         }
 
@@ -1899,64 +2020,108 @@ Item {
         onAccepted: close()
     }
 
+    // Zoom controls
+    FloatingPane {
+        id: zoomControls
+        padding: 2
+        anchors.bottom: parent.bottom
+        RowLayout {
+            spacing: 2
+            MaterialToolButton {
+                text: MaterialIcons.remove
+                ToolTip.text: "Zoom Out — " + GraphShortcuts.keys("zoom")
+                onClicked: root.zoomAt(root.width / 2, root.height / 2, 1 / mouseArea.factor)
+            }
+            // Click: 100 % on the center of the view
+            ToolButton {
+                text: Math.round(draggable.scale * 100) + " %"
+                font.family: GraphTheme.monoFamily
+                font.pointSize: 8
+                padding: 2
+                Layout.preferredWidth: 44
+                ToolTip.visible: hovered
+                ToolTip.text: "Zoom 100 %"
+                onClicked: root.runAction("zoomReset")
+            }
+            MaterialToolButton {
+                text: MaterialIcons.add
+                ToolTip.text: "Zoom In — " + GraphShortcuts.keys("zoom")
+                onClicked: root.zoomAt(root.width / 2, root.height / 2, mouseArea.factor)
+            }
+            // Separator
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.margins: 2
+                implicitWidth: 1
+                color: activePalette.window
+            }
+            MaterialToolButton {
+                text: MaterialIcons.fullscreen
+                ToolTip.text: GraphShortcuts.hint("Fit", "fit")
+                onClicked: root.fit()
+            }
+            MaterialToolButton {
+                text: MaterialIcons.linear_scale
+                ToolTip.text: "Auto-Layout"
+                onClicked: uigraph.layout.reset()
+            }
+        }
+    }
+
+    GraphMinimap {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 8
+        width: 160
+        height: 100
+        visible: GraphEditorSettings.showMinimap && root.graph !== null && root.graph.nodes.count > 0 && !graphInView
+        uigraph: root.uigraph
+        draggable: draggable
+        viewWidth: root.width
+        viewHeight: root.height
+        onCenterRequested: function(graphPoint) { root.centerOn(graphPoint) }
+        onZoomRequested: function(graphPoint, factor) {
+            const viewPoint = draggable.mapToItem(root, graphPoint.x, graphPoint.y)
+            root.zoomAt(viewPoint.x, viewPoint.y, factor)
+        }
+    }
+
+    CommandPalette {
+        id: commandPalette
+        property point spawnPosition
+        x: Math.round((root.width - width) / 2)
+        y: 12
+        nodeTypes: root.nodeTypesModel || {}
+        pipelines: MeshroomApp.pipelineTemplateNames
+        graphNodes: root.graph ? root.graph.nodes : null
+        onClosed: root.forceActiveFocus()
+        onNodeTypeChosen: function(nodeType) { root.createNode(nodeType, spawnPosition) }
+        onPipelineChosen: function(name) { root.importPipeline(name, spawnPosition) }
+        onGraphNodeChosen: function(node) {
+            uigraph.selectedNode = node
+            uigraph.selectNodes([node])
+            root.fitNode(root.nodeDelegate(node))
+        }
+        onCommandChosen: function(action) { root.runAction(action) }
+    }
+
     // Toolbar
     FloatingPane {
         padding: 2
         anchors.bottom: parent.bottom
+        anchors.left: zoomControls.right
+        anchors.leftMargin: 4
         RowLayout {
             id: navigation
             spacing: 4
 
             // Default index for search
             property int currentIndex: -1
-            // Fit
-            MaterialToolButton {
-                text: MaterialIcons.fullscreen
-                ToolTip.text: "Fit"
-                onClicked: root.fit()
-            }
-            // Auto-Layout
-            MaterialToolButton {
-                text: MaterialIcons.linear_scale
-                ToolTip.text: "Auto-Layout"
-                onClicked: uigraph.layout.reset()
-            }
             // Add Backdrop
             MaterialToolButton {
                 text: MaterialIcons.sticky_note_2
                 ToolTip.text: "Add Backdrop"
-                onClicked: {
-                    var selectedNodes = uigraph.getSelectedNodes()
-                    var backdrop
-                    if (selectedNodes.length > 0) {
-                        // Calculate bounding box of selected nodes
-                        var padding = uigraph.layout.gridSpacing * 0.5
-                        var minX = Number.MAX_VALUE
-                        var minY = Number.MAX_VALUE
-                        var maxX = -Number.MAX_VALUE
-                        var maxY = -Number.MAX_VALUE
-                        for (var i = 0; i < selectedNodes.length; i++) {
-                            var n = selectedNodes[i]
-                            // Node footprint, constant whatever the level of detail (actual size for backdrops)
-                            var item = nodeDelegate(n)
-                            var nw = item ? item.width : uigraph.layout.nodeWidth
-                            var nh = item ? footprint(item).height : uigraph.layout.nodeHeight
-                            minX = Math.min(minX, n.x)
-                            minY = Math.min(minY, n.y)
-                            maxX = Math.max(maxX, n.x + nw)
-                            maxY = Math.max(maxY, n.y + nh)
-                        }
-                        var bboxX = minX - padding
-                        var bboxY = minY - 2 * padding  // minus padding and title bar height
-                        var bboxW = Math.round(maxX - minX + 2 * padding)
-                        var bboxH = Math.round(maxY - minY + 2 * padding)
-                        backdrop = uigraph.addBackdropNode(Qt.point(bboxX, bboxY), bboxW, bboxH)
-                    } else {
-                        backdrop = uigraph.addNewNode("Backdrop", getCenterPosition())
-                    }
-                    uigraph.selectedNode = backdrop
-                    uigraph.selectNodes([backdrop])
-                }
+                onClicked: root.addBackdrop()
             }
 
             // Separator
@@ -2066,14 +2231,7 @@ Item {
             }
 
             function nextItem() {
-                // Compute bounding box
-                var node = nodeRepeater.getItemAt(filteredNodes.itemAt(navigation.currentIndex).index_)
-                var bbox = root.footprint(node)
-                // Rescale to fit the bounding box in the view, zoom is limited to prevent huge text
-                draggable.scale = Math.min(Math.min(root.width / bbox.width, root.height / bbox.height),maxZoom)
-                // Recenter
-                draggable.x = bbox.x * draggable.scale * -1 + (root.width - bbox.width * draggable.scale) * 0.5
-                draggable.y = bbox.y * draggable.scale * -1 + (root.height - bbox.height * draggable.scale) * 0.5
+                root.fitNode(nodeRepeater.getItemAt(filteredNodes.itemAt(navigation.currentIndex).index_))
             }
         }
     }

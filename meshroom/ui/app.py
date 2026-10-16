@@ -14,7 +14,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 import meshroom
-from meshroom.core import pluginManager
+from meshroom.core import desc, pluginManager
 from meshroom.core.desc import NodeVersionTypeEnum
 from meshroom.core.submitter import BaseSubmitter
 from meshroom.core.taskManager import TaskManager
@@ -220,6 +220,30 @@ Additional Resources:
     return parser.parse_args(args[1:])
 
 
+def nodeTypeInfo(nodeDescClass):
+    """
+    Describe a node type for the node creation UI (command palette).
+
+    Returns:
+        dict: "category", "versionType" (NodeVersionType value), "doc" (first sentence of the documentation)
+              and "inputs", the main data inputs as [{"label", "dataType"}].
+    """
+    nodeDesc = nodeDescClass()
+    doc = " ".join((nodeDescClass.documentation or nodeDescClass.__doc__ or "").split())
+    end = doc.find(". ")
+    inputs = []
+    for attr in nodeDescClass.inputs:
+        element = attr.elementDesc if isinstance(attr, desc.ListAttribute) else attr
+        if isinstance(element, desc.File) and not attr.advanced:
+            inputs.append({"label": attr.label, "dataType": attr.dataType})
+    return {
+        "category": nodeDescClass.category,
+        "versionType": int(nodeDesc.nodeVersionType),
+        "doc": doc[:end + 1] if end >= 0 else doc,
+        "inputs": inputs,
+    }
+
+
 class MeshroomApp(QApplication):
     """ Meshroom UI Application. """
     def __init__(self, inputArgs):
@@ -290,7 +314,7 @@ class MeshroomApp(QApplication):
             self.engine.addImportPath(pyside6QmlPath)
 
         # expose available node types that can be instantiated
-        self.engine.rootContext().setContextProperty("_nodeTypes", {n: {"category": pluginManager.getNodeDescProviders()[n].nodeDescClass.category} for n in sorted(pluginManager.getNodeDescProviders().keys())})
+        self.engine.rootContext().setContextProperty("_nodeTypes", {n: nodeTypeInfo(pluginManager.getNodeDescProviders()[n].nodeDescClass) for n in sorted(pluginManager.getNodeDescProviders().keys())})
 
         # instantiate the 3D Scene object
         self._undoStack = commands.UndoStack(self)
