@@ -69,6 +69,8 @@ _setParamSentinel = object()
 class Attribute(BaseObject):
     """
     """
+    # Default displayable data type of this kind of attribute (see getDataType)
+    _baseDataType = "generic"
 
     def __init__(self, name, label, description, value, advanced, semantic, commandLineGroup, enabled,
                  keyable=False, keyType=None, invalidate=True, uidIgnoreValue=None, visible=True, exposed=False, validators: Sequence[AttributeValidator]=None):
@@ -158,6 +160,13 @@ class Attribute(BaseObject):
     def validators(self):
         return self._validators
 
+    def getDataType(self) -> str:
+        """
+        Return the displayable data type of the attribute (e.g. "sfmData", "image", "scalar"), used by the UI
+        to color pins and edges. Never empty.
+        """
+        return self._baseDataType
+
     def clone(self):
         return self.__class__(
                 name=self.name,
@@ -224,6 +233,9 @@ class Attribute(BaseObject):
     #   By default, all file attributes are exposed.
     exposed = Property(bool, lambda self: self._exposed, constant=True)
     type = Property(str, lambda self: self.__class__.__name__, constant=True)
+    # dataType:
+    #   Displayable data type, derived from the attribute's description (see getDataType).
+    dataType = Property(str, lambda self: self.getDataType(), constant=True)
     # instanceType
     #   Attribute instance corresponding to the description
     instanceType = Property(Variant, lambda self: self.getInstanceType(), constant=True)
@@ -253,6 +265,9 @@ class ListAttribute(Attribute):
         # Import within the method to prevent cyclic dependencies
         from meshroom.core.attribute import ListAttribute
         return ListAttribute
+
+    def getDataType(self) -> str:
+        return self._elementDesc.getDataType()
 
     def validateValue(self, value):
         if value is None:
@@ -317,6 +332,8 @@ class ListAttribute(Attribute):
 
 class GroupAttribute(Attribute):
     """ A macro Attribute composed of several Attributes """
+    _baseDataType = "group"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, items, name, label=None, description=None, group="allParams", commandLineGroup=_setParamSentinel,
                  advanced=False, semantic="",  enabled=True, joinChar=" ", brackets=None, visible=True,
@@ -473,9 +490,29 @@ class Param(Attribute):
 class File(Attribute):
     """
     """
+    _baseDataType = "file"
+    _DATA_TYPE_BY_SEMANTIC = {"image": "image", "imageList": "image", "sequence": "image", "3d": "mesh"}
+    _DATA_TYPE_BY_EXTENSION = {
+        ".sfm": "sfmData", ".abc": "sfmData", ".usd": "sfmData", ".usda": "sfmData", ".usdc": "sfmData",
+        ".obj": "mesh", ".ply": "mesh", ".stl": "mesh", ".fbx": "mesh", ".gltf": "mesh", ".glb": "mesh", ".mtl": "mesh",
+        ".exr": "image", ".jpg": "image", ".jpeg": "image", ".png": "image", ".tif": "image", ".tiff": "image",
+    }
+    # Ordered (keyword, dataType) rules matched against the lowercase name, then the default value's file name
+    _DATA_TYPE_BY_KEYWORD = (
+        ("sfm", "sfmData"), ("viewsandposes", "sfmData"),
+        ("pair", "imagePairs"), ("imagematches", "imagePairs"),
+        ("feature", "features"), ("match", "matches"), ("track", "tracks"), ("mesh", "mesh"),
+        ("image", "image"), ("mask", "image"), ("depth", "image"), ("normal", "image"), ("undistorted", "image"),
+    )
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, group="allParams", commandLineGroup=_setParamSentinel,
-                 advanced=False, invalidate=True, semantic="", enabled=True, visible=True, exposed=True, validators=None):
+                 advanced=False, invalidate=True, semantic="", enabled=True, visible=True, exposed=True, validators=None,
+                 dataType=None):
+        """
+        :param dataType: displayable data type (e.g. "sfmData", "features"); derived from the semantic,
+                         the default value and the name when not set.
+        """
 
         commandLineGroup = commandLineGroup if commandLineGroup is not _setParamSentinel else group
 
@@ -483,6 +520,26 @@ class File(Attribute):
                                    commandLineGroup=commandLineGroup, advanced=advanced, enabled=enabled,
                                    invalidate=invalidate, semantic=semantic, visible=visible, exposed=exposed, validators=validators)
         self._valueType = str
+        self._dataType = dataType
+
+    def getDataType(self) -> str:
+        if self._dataType:
+            return self._dataType
+        if self._semantic in self._DATA_TYPE_BY_SEMANTIC:
+            return self._DATA_TYPE_BY_SEMANTIC[self._semantic]
+        # Expressions such as "{nodeCacheFolder}/sfm.abc" give the file type; callables cannot be inspected
+        value = self._value if isinstance(self._value, str) else ""
+        fileName = os.path.basename(value)
+        extension = os.path.splitext(fileName)[1].lower()
+        if extension in self._DATA_TYPE_BY_EXTENSION:
+            return self._DATA_TYPE_BY_EXTENSION[extension]
+        for text in (self._name.lower(), fileName.lower()):
+            for keyword, dataType in self._DATA_TYPE_BY_KEYWORD:
+                if keyword in text:
+                    return dataType
+        if value.endswith("{nodeCacheFolder}") or self._name.lower().endswith("folder"):
+            return "folder"
+        return self._baseDataType
 
     def validateValue(self, value):
         if value is None:
@@ -502,11 +559,15 @@ class File(Attribute):
         return "", ValueTypeErrors.NONE
 
     def clone(self):
-        return Attribute.clone(self)
+        clone = Attribute.clone(self)
+        clone._dataType = self._dataType
+        return clone
 
 class BoolParam(Param):
     """
     """
+    _baseDataType = "scalar"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, keyable=False, keyType=None,
                  group="allParams", commandLineGroup=_setParamSentinel, advanced=False,
@@ -542,6 +603,8 @@ class BoolParam(Param):
 class IntParam(Param):
     """
     """
+    _baseDataType = "scalar"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, range=None, keyable=False, keyType=None,
                  group="allParams", commandLineGroup=_setParamSentinel, advanced=False, enabled=True,
@@ -581,6 +644,8 @@ class IntParam(Param):
 class FloatParam(Param):
     """
     """
+    _baseDataType = "scalar"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, range=None, keyable=False, keyType=None,
                  group="allParams", commandLineGroup=_setParamSentinel, advanced=False, enabled=True,
@@ -674,6 +739,8 @@ class ChoiceParam(Param):
     _OVERRIDE_SERIALIZATION_KEY_VALUE = "__ChoiceParam_value__"
     _OVERRIDE_SERIALIZATION_KEY_VALUES = "__ChoiceParam_values__"
 
+    _baseDataType = "choice"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name: str, label=None, description=None, value=None, values=None, exclusive=True, saveValuesOverride=False,
                  group="allParams", commandLineGroup=_setParamSentinel, joinChar=" ", advanced=False, enabled=True,
@@ -762,6 +829,8 @@ class ChoiceParam(Param):
 class StringParam(Param):
     """
     """
+    _baseDataType = "string"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, group="allParams", commandLineGroup=_setParamSentinel,
                  advanced=False, enabled=True, invalidate=True, semantic="", uidIgnoreValue=None, visible=True, exposed=False, validators=None):
@@ -795,6 +864,8 @@ class StringParam(Param):
 class ColorParam(Param):
     """
     """
+    _baseDataType = "color"
+
     @deprecated.depreciateParam("group", "Param 'group' on {name} should not be used anymore. Please use 'commandLineGroup' instead")
     def __init__(self, name, label=None, description=None, value=None, group="allParams", commandLineGroup=_setParamSentinel,
                  advanced=False, enabled=True, invalidate=True, semantic="", visible=True, exposed=False, validators=None):
@@ -831,6 +902,8 @@ class Flow(Attribute):
     Unlike other attributes, Flow has no value to save in the graph file.
     Only connections (edges) to/from Flow are serialized.
     """
+    _baseDataType = "flow"
+
     def __init__(self, name, label=None, description=None, advanced=False, enabled=True,
                  visible=True, exposed=False):
         super().__init__(name=name, label=label, description=description,
