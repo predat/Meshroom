@@ -188,6 +188,16 @@ RowLayout {
 
             }
 
+            // Modified: an input which differs from its default value and is not linked (same rule as the group counters)
+            Rectangle {
+                visible: !object.isOutput && !object.isLink && !object.isDefault
+                Layout.leftMargin: 5
+                implicitWidth: 6
+                implicitHeight: 6
+                radius: 3
+                color: Colors.nodeModified
+            }
+
             Label {
                 id: parameterLabel
 
@@ -764,7 +774,20 @@ RowLayout {
             ColumnLayout {
                 id: groupItem
                 spacing: 0
-                property bool expanded: true
+                // Expanded state persisted by node type
+                readonly property string stateKey: "group:" + attribute.rootName
+                readonly property bool expanded: !GraphEditorSettings.isGroupCollapsed(attribute.node.nodeType, stateKey, false)
+
+                function toggle() {
+                    GraphEditorSettings.setGroupCollapsed(attribute.node.nodeType, stateKey, expanded)
+                }
+
+                readonly property var childAttributes: {
+                    const list = []
+                    for (let i = 0; i < attribute.value.count; ++i)
+                        list.push(attribute.value.at(i))
+                    return list
+                }
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -775,7 +798,7 @@ RowLayout {
                         font.family: MaterialIcons.fontFamily
                         font.pointSize: 10
                         padding: 2
-                        onClicked: groupItem.expanded = !groupItem.expanded
+                        onClicked: groupItem.toggle()
                     }
 
                     Label {
@@ -812,10 +835,16 @@ RowLayout {
                                     menu.popup()
                                     return
                                 }
-                                groupItem.expanded = !groupItem.expanded
+                                groupItem.toggle()
                             }
                             onDoubleClicked: function(mouse) { root.doubleClicked(mouse, root.attribute) }
                         }
+                    }
+
+                    AttributeModifiedBadge {
+                        Layout.rightMargin: 8
+                        attributes: groupItem.childAttributes
+                        readOnly: !root.editable
                     }
                 }
 

@@ -100,12 +100,12 @@ Item {
         return null
     }
 
-    /// Number of hidden parameters which differ from their default value
+    /// Number of hidden parameters which differ from their default value (same rule as the Node Editor groups)
     readonly property int modifiedParamsCount: {
         let count = 0
         for (let i = 0; node && i < node.attributes.count; ++i) {
             const attr = node.attributes.at(i)
-            if (!attr.isOutput && !attr.exposed && attr.desc.visible && !attr.isDefault)
+            if (!attr.isOutput && !attr.exposed && attr.desc.visible && !attr.isLink && !attr.isDefault)
                 count++
         }
         return count

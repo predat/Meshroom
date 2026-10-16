@@ -20,3 +20,5 @@ NodeFileBrowser 1.0 NodeFileBrowser.qml
 GraphShortcutsOverlay 1.0 GraphShortcutsOverlay.qml
 CommandPalette 1.0 CommandPalette.qml
 GraphMinimap 1.0 GraphMinimap.qml
+GroupedAttributeEditor 1.0 GroupedAttributeEditor.qml
+AttributeModifiedBadge 1.0 AttributeModifiedBadge.qml

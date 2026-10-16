@@ -298,6 +298,18 @@ Panel {
             enabled: tabBar.currentIndex === 0 || tabBar.currentIndex === 6
         }
 
+        // Same setting as Filter Attributes > Default (unchecked)
+        MaterialToolButton {
+            text: MaterialIcons.edit_note
+            font.pointSize: 11
+            padding: 2
+            checkable: true
+            checked: !GraphEditorSettings.showDefaultAttributes
+            enabled: tabBar.currentIndex === 0
+            ToolTip.text: "Modified Only"
+            onClicked: GraphEditorSettings.showDefaultAttributes = !checked
+        }
+
         MaterialToolButton {
             text: MaterialIcons.more_vert
             font.pointSize: 11
@@ -373,21 +385,6 @@ Panel {
                         }
                     }
 
-                    MenuSeparator {}
-
-                    CheckBox {
-                        id: advancedToggle
-                        text: "Advanced"
-                        MaterialLabel {
-                            anchors.right: parent.right; anchors.rightMargin: parent.padding;
-                            text: MaterialIcons.build
-                            anchors.verticalCenter: parent.verticalCenter
-                            font.pointSize: 8
-                        }
-                        checkable: true
-                        checked: GraphEditorSettings.showAdvancedAttributes
-                        onClicked: GraphEditorSettings.showAdvancedAttributes = !GraphEditorSettings.showAdvancedAttributes
-                    }
                 }
                 MenuItem {
                     text: "Open Cache Folder"
@@ -492,14 +489,12 @@ Panel {
                                 SplitView.maximumHeight: active ? 400 : 0
                             }
 
-                            // Node attribute editor
-                            AttributeEditor {
-                                id: inOutAttr
-                                objectsHideable: true
+                            // Node attribute editor, by groups
+                            GroupedAttributeEditor {
                                 Layout.fillHeight: true
                                 Layout.fillWidth: true
                                 SplitView.minimumHeight: 100
-                                model: root.node.attributes
+                                node: root.node
                                 readOnly: root.readOnly || root.isCompatibilityNode
                                 onAttributeDoubleClicked: function(mouse, attribute) { root.attributeDoubleClicked(mouse, attribute) }
                                 onUpgradeRequest: root.upgradeRequest()

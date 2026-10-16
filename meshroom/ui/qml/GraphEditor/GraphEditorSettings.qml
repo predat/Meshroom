@@ -7,7 +7,6 @@ import QtCore
 
 Settings {
     category: 'GraphEditor'
-    property bool showAdvancedAttributes: false
     property bool showDefaultAttributes: true
     property bool showModifiedAttributes: true
     property bool showInputAttributes: true
@@ -24,4 +23,25 @@ Settings {
     property bool showMinimap: true
     // Command palette recent items, as a JSON list of "node:<type>" / "pipeline:<name>" (most recent first)
     property string paletteRecents: "[]"
+    // Collapsed attribute groups of the Node Editor, as a JSON map {nodeType: {group: collapsed}}
+    property string inspectorCollapsed: "{}"
+
+    function isGroupCollapsed(nodeType, group, defaultValue) {
+        try {
+            const state = JSON.parse(inspectorCollapsed)[nodeType]
+            return state && group in state ? state[group] : defaultValue
+        } catch (e) {
+            return defaultValue
+        }
+    }
+
+    function setGroupCollapsed(nodeType, group, collapsed) {
+        let states = {}
+        try {
+            states = JSON.parse(inspectorCollapsed)
+        } catch (e) {}
+        states[nodeType] = states[nodeType] || {}
+        states[nodeType][group] = collapsed
+        inspectorCollapsed = JSON.stringify(states)
+    }
 }
