@@ -29,6 +29,39 @@ if TYPE_CHECKING:
     from meshroom.core.graph import Edge
 
 
+def effectiveDataType(attribute, _visited=None) -> str:
+    """
+    Displayable data type of an attribute, shared by its pin, its edges and the connection checks.
+
+    The explicit dataType of the description (dataType= on a File) wins; otherwise a linked input takes the
+    effective data type of its link source (recursively), and a list the common one of its linked elements, or the
+    generic type of its elements if they differ (its pin carries the edges of its elements); otherwise the type derived
+    from the description.
+
+    Args:
+        attribute: the attribute.
+        _visited: attributes already followed (guard against cycles).
+    """
+    attributeDesc = attribute.desc
+    explicit = getattr(getattr(attributeDesc, "elementDesc", attributeDesc), "_dataType", None)
+    if explicit:
+        return explicit
+    _visited = _visited if _visited is not None else set()
+    if attribute in _visited:
+        return attributeDesc.dataType
+    _visited.add(attribute)
+    if attribute.isLink:
+        return effectiveDataType(attribute._getInputLink(), _visited)
+    if isinstance(attribute, ListAttribute):
+        # One visited set per element: sibling elements may share an upstream source
+        linked = {effectiveDataType(element, set(_visited)) for element in attribute.value if element.isLink}
+        if len(linked) == 1:
+            return linked.pop()
+        if linked:
+            return attributeDesc.elementDesc._baseDataType
+    return attributeDesc.dataType
+
+
 def _captureExpressionTemplates(attr, value):
     """
     Recursively set _expressionTemplate on output expression attributes from their loaded values.
@@ -597,6 +630,27 @@ class Attribute(BaseObject):
         """
         return bool(self.node.graph and self.isInput and self.node.graph._edges and self in self.node.graph._edges.keys())
 
+    def _getDataType(self) -> str:
+        return effectiveDataType(self)
+
+    def notifyDataTypeChanged(self):
+        """
+        Notify that the data type of this input may have changed (its link changed), and the one of the inputs
+        linked to it downstream (input to input edges) and of its parent list, which take it from it.
+        """
+        visited = set()
+        queue = [self]
+        while queue:
+            attribute = queue.pop(0)
+            if attribute in visited:
+                continue
+            visited.add(attribute)
+            attribute.dataTypeChanged.emit()
+            queue.extend(dst for dst in attribute._getOutputLinks() if not dst.isOutput)
+            # The list takes the data type of its linked elements
+            if isinstance(attribute.root, ListAttribute):
+                queue.append(attribute.root)
+
     def _getInputLink(self, recursive=False) -> Attribute:
         """
         Return the direct upstream connected attribute.
@@ -772,8 +826,6 @@ class Attribute(BaseObject):
     type = Property(str, lambda self: self._desc.type, constant=True)
     # The type of the elements of the attribute as a string.
     baseType = Property(str, lambda self: self._desc.type, constant=True)
-    # The displayable data type of the attribute (e.g. "sfmData", "image"), used to color it in the UI.
-    dataType = Property(str, lambda self: self._desc.dataType, constant=True)
     # Whether the attribute is a node input attribute.
     isInput = Property(bool, lambda self: not self._isOutput, constant=True)
     # Whether the attribute is a node output attribute.
@@ -833,6 +885,9 @@ class Attribute(BaseObject):
     hasAnyInputLinks = Property(bool, _hasAnyInputLinks, notify=inputLinksChanged)
     # Whether the attribute or any of its elements is linked by another attribute.
     hasAnyOutputLinks = Property(bool, _hasAnyOutputLinks, notify=outputLinksChanged)
+    # The displayable data type of the attribute (e.g. "sfmData", "image"), used to color it in the UI.
+    dataTypeChanged = Signal()
+    dataType = Property(str, _getDataType, notify=dataTypeChanged)
 
     # The list of attributes that refer to this one as their parent.
     flatStaticChildrenChanged = Signal()  # AnySet's children list can change on runtime
