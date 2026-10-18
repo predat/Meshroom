@@ -26,7 +26,7 @@ var shortcuts = [
 
     { action: "disconnect", group: "Edges", keys: "X / shake", description: "Disconnect the selected nodes", command: "Disconnect Selected Nodes" },
     { action: "removeEdge", group: "Edges", keys: "Alt+click", description: "Remove an edge" },
-    { action: "cut", group: "Edges", keys: "K + drag / Ctrl+Alt+drag", description: "Cut the crossed edges" },
+    { action: "cut", group: "Edges", keys: "K + drag / tap K, drag / Ctrl+Alt+drag", description: "Cut the crossed edges" },
     { action: "insert", group: "Edges", keys: "Drop on edge", description: "Insert a node on an edge (Alt: don't)" },
 
     // Command palette only (not a group of the help overlay)

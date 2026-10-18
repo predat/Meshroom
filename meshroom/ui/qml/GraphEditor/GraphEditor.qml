@@ -134,9 +134,15 @@ Item {
         }
     }
 
-    // Knife: K held + drag cuts the crossed edges (Ctrl+Alt+drag is an alias)
+    // Knife: K held + drag cuts the crossed edges (Ctrl+Alt+drag is an alias). A short tap on K arms it for one
+    // stroke, without holding the key: touchpads are disabled while a key is held (libinput "disable while typing")
     property bool knifeKeyHeld: false
-    onActiveFocusChanged: if (!activeFocus) knifeKeyHeld = false
+    property bool knifeArmed: false
+    property bool knifeUsed: false  /// A stroke started while K was held: releasing K does not arm the knife
+    property double knifePressTime: 0
+    property double knifeReleaseTime: 0
+    readonly property bool knifeActive: knifeKeyHeld || knifeArmed
+    onActiveFocusChanged: if (!activeFocus) knifeKeyHeld = knifeArmed = false
 
     function isEdgeLocked(edge) {
         return edge.dst.node.locked || edge.dst.isReadOnly
@@ -470,9 +476,16 @@ Item {
                 newNodeMenu.popup()
             }
         } else if (event.key === Qt.Key_K) {
-            if (!event.isAutoRepeat)
+            if (!event.isAutoRepeat && !knifeKeyHeld) {
                 knifeKeyHeld = true
+                // Auto-repeat not flagged as such (e.g. remote X display): a release and a press a few ms apart
+                if (Date.now() - knifeReleaseTime > 100) {
+                    knifeUsed = false
+                    knifePressTime = Date.now()
+                }
+            }
         } else if (event.key === Qt.Key_Escape) {
+            knifeArmed = false
             if (edgeSelectionLine.active) {
                 edgeSelectionLine.cancelSelection()
                 mouseArea.removingEdges = false
@@ -483,8 +496,10 @@ Item {
     }
 
     Keys.onReleased: function(event) {
-        if (event.key === Qt.Key_K && !event.isAutoRepeat) {
+        if (event.key === Qt.Key_K && !event.isAutoRepeat && knifeKeyHeld) {
             knifeKeyHeld = false
+            knifeReleaseTime = Date.now()
+            knifeArmed = !knifeUsed && Date.now() - knifePressTime < 300
         }
     }
 
@@ -506,15 +521,17 @@ Item {
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         drag.threshold: 0
         drag.smoothed: false
-        cursorShape: drag.target == draggable ? Qt.ClosedHandCursor : removingEdges || root.knifeKeyHeld ? Qt.CrossCursor : Qt.ArrowCursor
+        cursorShape: drag.target == draggable ? Qt.ClosedHandCursor : removingEdges || root.knifeActive ? Qt.CrossCursor : Qt.ArrowCursor
 
         onWheel: function(wheel) {
             root.zoomAt(wheel.x, wheel.y, wheel.angleDelta.y > 0 ? factor : 1 / factor)
         }
 
         onPressed: function(mouse) {
-            // Knife: K held or Ctrl+Alt
-            if (mouse.button == Qt.LeftButton && (root.knifeKeyHeld || ((mouse.modifiers & Qt.ControlModifier) && (mouse.modifiers & Qt.AltModifier)))) {
+            // Knife: K held or tapped, or Ctrl+Alt
+            if (mouse.button == Qt.LeftButton && (root.knifeActive || ((mouse.modifiers & Qt.ControlModifier) && (mouse.modifiers & Qt.AltModifier)))) {
+                root.knifeUsed = root.knifeKeyHeld
+                root.knifeArmed = false
                 edgeSelectionLine.startSelection(mouse)
                 removingEdges = true
                 root.forceActiveFocus()
