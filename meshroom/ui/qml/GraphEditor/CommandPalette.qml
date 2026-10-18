@@ -225,7 +225,11 @@ Popup {
                 Keys.onDownPressed: list.incrementCurrentIndex()
                 Keys.onReturnPressed: root.execute(list.currentIndex)
                 Keys.onEnterPressed: root.execute(list.currentIndex)
-                Keys.onTabPressed: root.execute(list.currentIndex)
+                // Tab toggles the palette: it never validates the item under the cursor
+                Keys.onTabPressed: function(event) {
+                    if (!event.isAutoRepeat)
+                        root.close()
+                }
                 Keys.onEscapePressed: root.close()
             }
         }
