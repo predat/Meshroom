@@ -41,16 +41,29 @@ class ToolError(Exception):
 class Session:
     """ What the tools may read from the running application. """
     def __init__(self, getGraph: Callable[[], Optional[Graph]], getProjectRoots: Callable[[], List[str]],
-                 getApplicationState: Callable[[], dict] = dict):
+                 getApplicationState: Callable[[], dict] = dict, getEditor: Callable[[], object] = lambda: None,
+                 saveAs: Optional[Callable[[str], None]] = None, getInputRoots: Callable[[], List[str]] = list):
         self.getGraph = getGraph  # The open project's graph, None when no project is open
-        self.getProjectRoots = getProjectRoots  # Folders meshroom_list_projects may scan
+        self.getProjectRoots = getProjectRoots  # Folders meshroom_list_projects/save_project may use
         self.getApplicationState = getApplicationState  # Application-level state, added to meshroom_environment
+        # The UIGraph of the open project, whose undoable methods the editing tools use; None if not editable
+        self.getEditor = getEditor
+        # Save the open project as a new file like File > Save As does (recent projects); default: editor.saveAs
+        self.saveAs = saveAs
+        self.getInputRoots = getInputRoots  # Folders meshroom_import_images may read images from
 
     def graph(self) -> Graph:
         graph = self.getGraph()
         if graph is None:
             raise ToolError("NO_PROJECT", "No project is open in Meshroom: open or create one first.")
         return graph
+
+    def editor(self):
+        self.graph()
+        editor = self.getEditor()
+        if editor is None:
+            raise ToolError("READ_ONLY", "This session cannot modify the project.")
+        return editor
 
 
 # Results

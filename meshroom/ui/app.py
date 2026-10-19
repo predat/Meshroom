@@ -21,6 +21,7 @@ from meshroom.core.taskManager import TaskManager
 from meshroom.common import Property, Variant, Signal, Slot
 
 from meshroom.env import EnvVar, EnvVarHelpAction
+from meshroom.mcp.editing import createEditingTools
 from meshroom.mcp.rpc import Dispatcher
 from meshroom.mcp.tools import Session, createTools
 from meshroom.mcp.transport import McpServer
@@ -331,8 +332,11 @@ class MeshroomApp(QApplication):
             getGraph=lambda: self._activeProject.graph if self._activeProject.active else None,
             getProjectRoots=lambda: QSettings().value("MCP/projectRoots", [], type=list),
             getApplicationState=self._mcpApplicationState,
+            getEditor=lambda: self._activeProject if self._activeProject.active else None,
+            saveAs=self.saveProjectAs,
+            getInputRoots=lambda: QSettings().value("MCP/inputRoots", [], type=list),
         )
-        mcpTools = createTools(mcpSession)
+        mcpTools = createTools(mcpSession) + createEditingTools(mcpSession)
         self._mcpServer = McpServer(Dispatcher(meshroom.__version__, mcpTools).handle, parent=self)
         self._mcpServer.runningChanged.connect(self.mcpEnabledChanged)
         self.aboutToQuit.connect(self._mcpServer.stop)
@@ -524,6 +528,16 @@ class MeshroomApp(QApplication):
             path = project["path"]
             project["thumbnail"] = self._retrieveThumbnailPath(path)
             project["status"] = os.path.isfile(path)
+
+    @Slot(str)
+    @Slot(QUrl)
+    def saveProjectAs(self, projectFile) -> None:
+        """
+        Save the open project as 'projectFile', which becomes the open project and the most recent project
+        (File > Save As).
+        """
+        self._activeProject.saveAs(projectFile)
+        self.addRecentProjectFile(projectFile)
 
     @Slot(str)
     @Slot(QUrl)

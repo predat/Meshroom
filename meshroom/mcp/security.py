@@ -19,6 +19,17 @@ def resolveRoot(root: str) -> str:
     return resolved
 
 
+def validRoots(roots) -> list:
+    """ Canonical paths of the configured roots which are absolute paths to existing folders. """
+    resolved = []
+    for root in roots:
+        try:
+            resolved.append(resolveRoot(root))
+        except ValueError:
+            continue
+    return resolved
+
+
 def resolveUnderRoot(root: str, relativePath: str) -> str:
     """
     Canonical path of 'relativePath' inside the canonical 'root'.

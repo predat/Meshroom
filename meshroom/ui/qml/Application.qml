@@ -162,8 +162,7 @@ Page {
             }
 
             // Only save a valid file
-            _currentScene.saveAs(currentFile)
-            MeshroomApp.addRecentProjectFile(currentFile.toString())
+            MeshroomApp.saveProjectAs(currentFile)
             closed(Platform.Dialog.Accepted)
             fireCallback(Platform.Dialog.Accepted)
         }
