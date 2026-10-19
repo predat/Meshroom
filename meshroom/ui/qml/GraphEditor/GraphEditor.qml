@@ -259,7 +259,7 @@ Item {
                 newNodeMenu.spawnPosition = mouseArea.mapToItem(draggable, mouseArea.mouseX, mouseArea.mouseY)
                 newNodeMenu.popup()
             }
-        }
+        } else if (event.key === Qt.Key_G && event.modifiers === Qt.ShiftModifier) { workspaceGrid.showGrid = !workspaceGrid.showGrid }
     }
 
     MouseArea {
@@ -492,6 +492,62 @@ Item {
                 text: "Computing - Graph is Locked!"
             }
         }
+
+        // Background grid (Blender node editor like), following the pan and the zoom
+        Item {
+            id: workspaceGrid
+            anchors.fill: parent
+            clip: true
+            visible: showGrid
+
+            property bool showGrid: true
+            property real baseSpacing: 10       // size of a cell, in graph coordinates
+            property real majorEvery: 5          // a major line every N cells
+            // Minimum screen spacing of the minor lines: at most ~200 line items on a 1920x1080 view
+            property real minSpacing: 20
+            // Spacing on screen: the cells merge when zooming out
+            readonly property real spacing: {
+                let s = baseSpacing * draggable.scale
+                // NOTE: the scale is 0 while the view has no size yet (fit() on page creation): the loop below would never end
+                if (!(s > 0))
+                    return baseSpacing
+                while (s < minSpacing) s *= 2   // zoomed out: merge the cells that are too dense
+                return s
+            }
+            readonly property real majorSpacing: spacing * majorEvery
+            // Grays darker than the graph background: minor lines at ~1.1:1, major ones at ~1.2:1, below an edge whose data
+            // is not produced yet
+            readonly property color minorColor: GraphTheme.darkerByContrast(GraphTheme.graphBackground, 1.1)
+            readonly property color majorColor: GraphTheme.darkerByContrast(GraphTheme.graphBackground, 1.2)
+
+            // The lines only depend on the view size and the zoom: panning moves them as a block, modulo the
+            // major spacing, so that nothing is redrawn
+            Item {
+                id: gridLines
+                x: ((draggable.x % workspaceGrid.majorSpacing) + workspaceGrid.majorSpacing) % workspaceGrid.majorSpacing - workspaceGrid.majorSpacing
+                y: ((draggable.y % workspaceGrid.majorSpacing) + workspaceGrid.majorSpacing) % workspaceGrid.majorSpacing - workspaceGrid.majorSpacing
+                width: workspaceGrid.width + 2 * workspaceGrid.majorSpacing
+                height: workspaceGrid.height + 2 * workspaceGrid.majorSpacing
+
+                Repeater {
+                    model: workspaceGrid.visible ? Math.ceil(gridLines.width / workspaceGrid.spacing) : 0
+                    Rectangle { x: index * workspaceGrid.spacing; width: 1; height: gridLines.height; color: workspaceGrid.minorColor }
+                }
+                Repeater {
+                    model: workspaceGrid.visible ? Math.ceil(gridLines.height / workspaceGrid.spacing) : 0
+                    Rectangle { y: index * workspaceGrid.spacing; height: 1; width: gridLines.width; color: workspaceGrid.minorColor }
+                }
+                Repeater {
+                    model: workspaceGrid.visible ? Math.ceil(gridLines.width / workspaceGrid.majorSpacing) : 0
+                    Rectangle { x: index * workspaceGrid.majorSpacing; width: 1; height: gridLines.height; color: workspaceGrid.majorColor }
+                }
+                Repeater {
+                    model: workspaceGrid.visible ? Math.ceil(gridLines.height / workspaceGrid.majorSpacing) : 0
+                    Rectangle { y: index * workspaceGrid.majorSpacing; height: 1; width: gridLines.width; color: workspaceGrid.majorColor }
+                }
+            }
+        }
+
 
         Canvas {
             id: templateBackgroundStripes
