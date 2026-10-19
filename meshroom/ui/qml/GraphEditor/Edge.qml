@@ -55,6 +55,16 @@ Item {
     property real endX: width
     property real endY: height
 
+    // Length of the horizontal tangents of a cubic going from (0, 0) to (dx, dy)
+    function tangentLength(dx, dy) {
+        if (dx < 0)
+            return Math.max(40, -dx * 0.5)
+        // Aligned pins: straight line
+        if (Math.abs(dy) <= 2)
+            return 0
+        // Bounded by the gap so that the curve does not overshoot the pins of close nodes
+        return Math.max(dx * 0.5, Math.min(40, dx * 0.5 + Math.abs(dy) * 0.25))
+    }
 
     function intersectsSegment(p1, p2) {
         /**
@@ -126,8 +136,7 @@ Item {
 
             PathCubic {
                 id: cubic
-                // Adaptive tangent: wider edges get smoother curves
-                property real ctrlPtDist: Math.max(40, Math.abs(x - root.startX) * 0.5)
+                property real ctrlPtDist: root.tangentLength(x - root.startX, y - root.startY)
                 x: root.isForLoop ? (root.startX + root.endX) / 2  - loopArea.width / 2 : root.endX
                 y: root.isForLoop ? (root.startY + root.endY) / 2 : root.endY
                 relativeControl1X: ctrlPtDist
@@ -152,7 +161,7 @@ Item {
 
             PathCubic {
                 id: cubicSecondary
-                property real ctrlPtDist: Math.max(40, Math.abs(x - pathSecondary.startX) * 0.5)
+                property real ctrlPtDist: root.tangentLength(x - pathSecondary.startX, y - pathSecondary.startY)
                 x: root.endX
                 y: root.endY
                 relativeControl1X: ctrlPtDist
