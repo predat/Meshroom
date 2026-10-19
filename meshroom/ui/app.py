@@ -22,6 +22,7 @@ from meshroom.common import Property, Variant, Signal, Slot
 
 from meshroom.env import EnvVar, EnvVarHelpAction
 from meshroom.mcp.editing import createEditingTools
+from meshroom.mcp.execution import createExecutionTools
 from meshroom.mcp.rpc import Dispatcher
 from meshroom.mcp.tools import Session, createTools
 from meshroom.mcp.transport import McpServer
@@ -336,7 +337,7 @@ class MeshroomApp(QApplication):
             saveAs=self.saveProjectAs,
             getInputRoots=lambda: QSettings().value("MCP/inputRoots", [], type=list),
         )
-        mcpTools = createTools(mcpSession) + createEditingTools(mcpSession)
+        mcpTools = createTools(mcpSession) + createEditingTools(mcpSession) + createExecutionTools(mcpSession)
         self._mcpServer = McpServer(Dispatcher(meshroom.__version__, mcpTools).handle, parent=self)
         self._mcpServer.runningChanged.connect(self.mcpEnabledChanged)
         self.aboutToQuit.connect(self._mcpServer.stop)
