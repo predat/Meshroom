@@ -174,7 +174,8 @@ def test_localSuccessAndOutputs(editor, call):
     node = editor.addNewNode("WriteText")
     editor.save()
     outputs, _ = call("meshroom_get_outputs", nodes=[node.name])
-    assert outputs["nodes"][0]["outputs"][0]["exists"] is False
+    output = outputs["nodes"][0]["outputs"][0]
+    assert output["pattern"] == output["value"] and output["matches"] == 0 and output["expected"] == 1
     data, isError = call("meshroom_submit", nodes=[node.name], confirm=True)
     assert not isError
     assert waitFor(lambda: finished(editor, node.name))
@@ -182,7 +183,7 @@ def test_localSuccessAndOutputs(editor, call):
     assert status["nodes"][0]["status"] == "SUCCESS" and status["computingLocally"] is False
     outputs, _ = call("meshroom_get_outputs", nodes=[node.name])
     output = outputs["nodes"][0]["outputs"][0]
-    assert output["exists"] is True and open(output["value"]).read() == "hello"
+    assert output["matches"] == 1 and output["expected"] == 1 and open(output["value"]).read() == "hello"
     data, isError = call("meshroom_submit", nodes=[node.name], confirm=True)
     assert isError and data["error"] == "ALREADY_COMPUTED"
 

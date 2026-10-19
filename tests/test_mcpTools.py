@@ -261,3 +261,39 @@ def test_listProjectsTimeBudget(projectTree, monkeypatch):
     assert not isError
     assert "time" in data["truncated"]
     assert data["projects"] == []
+
+
+class CameraInit(desc.Node):
+    inputs = [desc.ListAttribute(name="viewpoints", elementDesc=desc.GroupAttribute(name="viewpoint", items=[
+        desc.File(name="path", value="")]))]
+    outputs = [desc.File(name="output", value="{nodeCacheFolder}/cameraInit.sfm")]
+
+
+class PerView(desc.Node):
+    inputs = [desc.File(name="input", value="")]
+    outputs = [
+        desc.File(name="views", value="{nodeCacheFolder}/<VIEW_ID>.txt"),
+        desc.File(name="intrinsics", value="{nodeCacheFolder}/<INTRINSIC_ID>.txt"),
+        desc.File(name="single", value="{nodeCacheFolder}/single.txt"),
+        desc.IntParam(name="count", value=0),
+    ]
+
+
+def test_outputFiles(graphSavedOnDisk):
+    with registeredNodeTypes([CameraInit, PerView]):
+        graph = graphSavedOnDisk
+        cameraInit, perView = graph.addNewNode("CameraInit"), graph.addNewNode("PerView")
+        cameraInit.viewpoints.extend([{"path": "a.jpg"}, {"path": "b.jpg"}, {"path": "c.jpg"}])
+        graph.addEdge(cameraInit.output, perView.input)
+        files = {a.name: tools.outputFiles(a) for a in perView.attributes if a.isOutput}
+        folder = perView.internalFolder
+        assert files["views"] == {"pattern": f"{folder}/*.txt", "matches": 0, "expected": 3}
+        assert files["intrinsics"] == {"pattern": f"{folder}/*.txt", "matches": 0, "expected": None}
+        assert files["single"] == {"pattern": f"{folder}/single.txt", "matches": 0, "expected": 1}
+        assert files["count"] == {}
+        os.makedirs(folder)
+        for name in ("1.txt", "2.txt"):
+            open(os.path.join(folder, name), "w").close()
+        assert tools.outputFiles(perView.views)["matches"] == 2
+        assert tools.outputFiles(cameraInit.output) == {
+            "pattern": f"{cameraInit.internalFolder}/cameraInit.sfm", "matches": 0, "expected": 1}

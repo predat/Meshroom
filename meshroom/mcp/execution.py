@@ -4,16 +4,14 @@ MCP tools running the open project through the application's TaskManager, like t
 Statuses are reported as Meshroom exposes them (node and chunk status, execution mode, times): Meshroom has no
 progress percentage, so none is given.
 """
-import glob
 import os
 import time
 from typing import List
 
 import meshroom.core
-from meshroom.core import desc
 from meshroom.mcp.editing import checkTopLevelKeysKept, editState, findNode
 from meshroom.mcp.rpc import LogCapture, Tool
-from meshroom.mcp.tools import Session, ToolError, addList, makeTool
+from meshroom.mcp.tools import Session, ToolError, addList, makeTool, outputFiles
 
 LOCAL = "local"
 MAX_LOG_LINES = 2000
@@ -266,12 +264,6 @@ def cancel(session: Session, arguments: dict) -> dict:
 
 # Outputs
 
-def outputExists(path: str) -> bool:
-    if any(c in path for c in "*?["):
-        return bool(glob.glob(path))
-    return os.path.exists(path)
-
-
 def getOutputs(session: Session, arguments: dict) -> dict:
     editor = session.editor()
     graph = editor.graph
@@ -283,10 +275,8 @@ def getOutputs(session: Session, arguments: dict) -> dict:
             if not attribute.isOutput or not attribute.enabled:
                 continue
             value = attribute.evalValue
-            output = {"name": attribute.name, "type": attribute.type, "value": value}
-            if isinstance(attribute.desc, desc.File) and isinstance(value, str) and value:
-                output["exists"] = outputExists(value)
-            outputs.append(output)
+            outputs.append({"name": attribute.name, "type": attribute.type, "value": value,
+                            **outputFiles(attribute)})
         result.append({"name": node.name, "status": node.globalStatus, "outputs": outputs})
     data = {}
     addList(data, "nodes", result)
@@ -341,8 +331,10 @@ def createExecutionTools(session: Session) -> List[Tool]:
                  {"type": "object", "additionalProperties": False, "properties": {}},
                  bind(cancel)),
         makeTool("meshroom_get_outputs",
-                 "Output attributes of nodes with their resolved values, and whether the output files exist on "
-                 "disk. Read-only.",
+                 "Output attributes of nodes with their resolved values. For files: 'pattern' (placeholders such "
+                 "as <VIEW_ID> replaced by '*'), the number of files on disk that 'matches' it, and the number "
+                 "'expected' when known (1 for a plain path, one per view of the upstream CameraInit nodes for "
+                 "<VIEW_ID>, null otherwise). Read-only.",
                  {"type": "object", "additionalProperties": False, "properties": {"nodes": nodeList}},
                  bind(getOutputs)),
     ]

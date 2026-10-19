@@ -6,6 +6,7 @@ can work on a Graph loaded from disk. Nodes are designated by their name (e.g. "
 UID is a hash of their inputs, given for information only.
 """
 import datetime
+import glob
 import json
 import os
 import platform
@@ -28,6 +29,8 @@ LIST_PAGE_SIZE = 20  # default number of items shown per ListAttribute by meshro
 LIST_PROJECTS_TIME_BUDGET = 2.0  # seconds spent by meshroom_list_projects scanning folders
 LIST_PROJECTS_MAX_DEPTH = 2  # default depth of subfolders scanned by meshroom_list_projects
 PROJECT_EXTENSION = ".mg"
+# Node descriptions name one output file per view, intrinsic... with placeholders such as <VIEW_ID>
+OUTPUT_PLACEHOLDER = re.compile(r"<[A-Z_]+>")
 
 
 class ToolError(Exception):
@@ -234,6 +237,33 @@ def aliceVisionVersion() -> dict:
     if status and status.group(1):
         result["status"] = status.group(1)
     return result
+
+
+def viewCount(node) -> int:
+    """ Number of views of the CameraInit nodes 'node' depends on. """
+    nodes = [node] + node.getInputNodes(recursive=True, dependenciesOnly=True)
+    return sum(len(n.attribute("viewpoints")) for n in nodes
+               if n.nodeType == "CameraInit" and n.hasAttribute("viewpoints"))
+
+
+def outputFiles(attribute) -> dict:
+    """
+    For a File output: its glob 'pattern' (placeholders such as <VIEW_ID> as '*'), the number of files 'matches' it
+    and, when known, the number 'expected' (1 without placeholder, one per view for <VIEW_ID>). {} otherwise.
+    """
+    path = attribute.evalValue
+    if attribute.type != "File" or not isinstance(path, str) or not path:
+        return {}
+    placeholders = set(OUTPUT_PLACEHOLDER.findall(path))
+    pattern = OUTPUT_PLACEHOLDER.sub("*", path)
+    isGlob = any(c in pattern for c in "*?[")
+    matches = len(glob.glob(pattern)) if isGlob else int(os.path.exists(pattern))
+    expected = None
+    if not isGlob:
+        expected = 1
+    elif placeholders == {"<VIEW_ID>"} and not any(c in path for c in "*?["):
+        expected = viewCount(attribute.node)
+    return {"pattern": pattern, "matches": matches, "expected": expected}
 
 
 def environment(session: Session, arguments: dict) -> dict:
