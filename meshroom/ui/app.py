@@ -21,6 +21,8 @@ from meshroom.core.taskManager import TaskManager
 from meshroom.common import Property, Variant, Signal, Slot
 
 from meshroom.env import EnvVar, EnvVarHelpAction
+from meshroom.mcp.rpc import Dispatcher
+from meshroom.mcp.transport import McpServer
 
 from meshroom.ui import components
 from meshroom.ui.components.clipboard import ClipboardHelper
@@ -322,6 +324,13 @@ class MeshroomApp(QApplication):
 
         # request any potential computation to stop on exit
         self.aboutToQuit.connect(self._activeProject.stopChildThreads)
+
+        # MCP server (File > Advanced), started if it was enabled in a previous session
+        self._mcpServer = McpServer(Dispatcher(meshroom.__version__).handle, parent=self)
+        self._mcpServer.runningChanged.connect(self.mcpEnabledChanged)
+        self.aboutToQuit.connect(self._mcpServer.stop)
+        if QSettings().value("MCP/enabled", False, type=bool):
+            self._mcpServer.start()
 
         if args.project and not os.path.isfile(args.project):
             raise RuntimeError(
@@ -818,6 +827,16 @@ class MeshroomApp(QApplication):
         logging.info(f"Submitter is now set to : {name}")
         self._defaultSubmitterName = name
 
+    def _setMcpEnabled(self, enabled: bool):
+        """ Persist the user's choice, then start or stop the MCP server. """
+        settings = QSettings()
+        settings.setValue("MCP/enabled", enabled)
+        settings.sync()
+        if enabled:
+            self._mcpServer.start()
+        else:
+            self._mcpServer.stop()
+
     activeProjectChanged = Signal()
     activeProject = Property(Variant, lambda self: self._activeProject, notify=activeProjectChanged)
 
@@ -835,3 +854,7 @@ class MeshroomApp(QApplication):
     default8bitViewerEnabled = Property(bool, _default8bitViewerEnabled, constant=True)
     defaultSequencePlayerEnabled = Property(bool, _defaultSequencePlayerEnabled, constant=True)
     submittersListModel = Property("QVariantList", _submittersList, constant=True)
+    mcpEnabledChanged = Signal()
+    # Whether the MCP server is actually listening (stays False if it failed to start)
+    mcpEnabled = Property(bool, lambda self: self._mcpServer.running, _setMcpEnabled, notify=mcpEnabledChanged)
+    mcpSocketPath = Property(str, lambda self: self._mcpServer.socketPath, notify=mcpEnabledChanged)

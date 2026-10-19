@@ -951,6 +951,25 @@ Page {
 
                     MenuSeparator { }
 
+                    MenuItem {
+                        id: mcpServerMenuItem
+                        checkable: true
+                        checked: MeshroomApp.mcpEnabled
+                        text: "MCP Server"
+                        onToggled: {
+                            MeshroomApp.mcpEnabled = checked
+                            // Restore binding: shows the actual server state, e.g. unchecked if it failed to start
+                            checked = Qt.binding(function() { return MeshroomApp.mcpEnabled })
+                        }
+                        ToolTip {
+                            visible: parent.hovered
+                            text: MeshroomApp.mcpEnabled ? "Listening on " + MeshroomApp.mcpSocketPath
+                                                         : "Serve this project to MCP clients (e.g. Claude Code) on a private local socket"
+                            x: advancedMenu.implicitWidth
+                            y: 0
+                        }
+                    }
+
                     Menu {
                         id: nodeActionsSettingsMenu
                         title: "NodeActions Settings"
