@@ -135,6 +135,7 @@ def test_getNodeTooBigValueDoesNotHideTheOthers(session, graph, monkeypatch):
     ({}, "INVALID_ARGUMENT"),
     ({"node": 3}, "INVALID_ARGUMENT"),
     ({"node": "AppendText_1", "extra": True}, "INVALID_ARGUMENT"),
+    ({"node": "AppendText_1", "attributes": "input"}, "INVALID_ARGUMENT"),
     ({"node": "AppendText_1", "attributes": []}, "INVALID_ARGUMENT"),
     ({"node": "AppendText_1", "attributes": ["input", "nope"]}, "ATTRIBUTE_NOT_FOUND"),
     ({"node": "AppendText_1", "attributes": ["input[0]"]}, "ATTRIBUTE_NOT_FOUND"),

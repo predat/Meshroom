@@ -102,7 +102,7 @@ def boundValue(value, path: str, truncatedPaths: list):
 
 def checkArguments(arguments: dict, schema: dict):
     """ Minimal check of the arguments against the tool's JSON schema: known names, required ones, types. """
-    types = {"string": str, "boolean": bool, "integer": int, "object": dict}
+    types = {"string": str, "boolean": bool, "integer": int, "object": dict, "array": list}
     properties = schema.get("properties", {})
     for name in arguments:
         if name not in properties:
