@@ -22,6 +22,7 @@ from meshroom.common import Property, Variant, Signal, Slot
 
 from meshroom.env import EnvVar, EnvVarHelpAction
 from meshroom.mcp.rpc import Dispatcher
+from meshroom.mcp.tools import Session, createTools
 from meshroom.mcp.transport import McpServer
 
 from meshroom.ui import components
@@ -326,7 +327,13 @@ class MeshroomApp(QApplication):
         self.aboutToQuit.connect(self._activeProject.stopChildThreads)
 
         # MCP server (File > Advanced), started if it was enabled in a previous session
-        self._mcpServer = McpServer(Dispatcher(meshroom.__version__).handle, parent=self)
+        mcpSession = Session(
+            getGraph=lambda: self._activeProject.graph if self._activeProject.active else None,
+            getProjectRoots=lambda: QSettings().value("MCP/projectRoots", [], type=list),
+            getApplicationState=self._mcpApplicationState,
+        )
+        mcpTools = createTools(mcpSession)
+        self._mcpServer = McpServer(Dispatcher(meshroom.__version__, mcpTools).handle, parent=self)
         self._mcpServer.runningChanged.connect(self.mcpEnabledChanged)
         self.aboutToQuit.connect(self._mcpServer.stop)
         if QSettings().value("MCP/enabled", False, type=bool):
@@ -826,6 +833,18 @@ class MeshroomApp(QApplication):
     def setDefaultSubmitter(self, name):
         logging.info(f"Submitter is now set to : {name}")
         self._defaultSubmitterName = name
+
+    def _mcpApplicationState(self) -> dict:
+        """ State of the application reported by the MCP tool 'meshroom_environment'. """
+        return {
+            "pyside6": PySideVersion,
+            "qt": QtCore.qVersion(),
+            "unsavedChanges": not self._undoStack.isClean(),
+            "computing": {
+                "locally": self._activeProject.isComputingLocally(),
+                "externally": self._activeProject.isComputingExternally(),
+            },
+        }
 
     def _setMcpEnabled(self, enabled: bool):
         """ Persist the user's choice, then start or stop the MCP server. """
