@@ -9,6 +9,7 @@ import time
 from typing import List
 
 import meshroom.core
+from meshroom.mcp import background, pipeline
 from meshroom.mcp.editing import checkTopLevelKeysKept, editState, findNode
 from meshroom.mcp.rpc import LogCapture, Tool
 from meshroom.mcp.tools import Session, ToolError, addList, makeTool, outputFiles
@@ -115,10 +116,14 @@ def startComputation(editor, mode: str, nodes, force: bool) -> List[str]:
     return warnings + capture.lines
 
 
-def submissionEffects(graph, mode: str) -> str:
-    return (f"writes {graph.filepath} (as Compute does); the undo stack is locked during the computation"
-            if mode == LOCAL else
-            f"writes {graph.filepath} and clears the undo stack (as Submit does), then submits to '{mode}'")
+def submissionEffects(graph, mode: str, jobDir) -> str:
+    effects = (f"writes {graph.filepath} (as Compute does); the undo stack is locked during the computation"
+               if mode == LOCAL else
+               f"writes {graph.filepath} and clears the undo stack (as Submit does), then submits to '{mode}'")
+    if jobDir:
+        effects += (f"; the project's cache moves to {jobDir}/{meshroom.core.cacheFolderName} (saved in the project "
+                    f"file, not undoable) and a provenance manifest is written in {jobDir}")
+    return effects
 
 
 def submit(session: Session, arguments: dict) -> dict:
@@ -127,19 +132,42 @@ def submit(session: Session, arguments: dict) -> dict:
     nodes = findNodes(graph, arguments.get("nodes"))
     mode, force = arguments.get("mode", LOCAL), arguments.get("force", False)
     checkSubmittable(editor, mode, force)
-    plan, skipped = submissionPlan(graph, nodes, force)
+    jobDir = pipeline.checkJobDir(session, arguments["jobDir"]) if arguments.get("jobDir") else None
     if not arguments.get("confirm"):
+        plan, skipped = submissionPlan(graph, nodes, force)
         return {"confirmRequired": True, "change": "Nothing started: call again with confirm=true to start",
                 "mode": mode, "nodesToProcess": [n.name for n in plan], "skipped": skippedNodes(skipped),
-                "effects": submissionEffects(graph, mode)}
-    if not plan:
-        raise ToolError("ALREADY_COMPUTED", f"Nothing to compute: {[n.name for n in skipped]} are already computed "
-                        "with their current parameters. Pass force=true to compute them again.")
-    warnings = startComputation(editor, mode, nodes, force)
-    return {"change": f"Started ({mode}): poll meshroom_get_status for the result", "mode": mode,
+                "effects": submissionEffects(graph, mode, jobDir),
+                **({"note": "With jobDir, the statuses are those of the job folder's cache"} if jobDir else {})}
+    job = pipeline.prepareJobDir(session, editor, jobDir) if jobDir else None
+    ending = None
+    try:
+        plan, skipped = submissionPlan(graph, nodes, force)
+        if not plan:
+            raise ToolError("ALREADY_COMPUTED", f"Nothing to compute: {[n.name for n in skipped]} are already computed "
+                            "with their current parameters. Pass force=true to compute them again.")
+        if job and mode == LOCAL:  # Listen before starting: a short computation may end at once
+            ending = background.NextEmission(editor.taskManager.computeFinished,
+                                             lambda: pipeline.writeFinalManifest(session, editor, job["folder"]),
+                                             parent=editor)
+        warnings = startComputation(editor, mode, nodes, force)
+    except ToolError:
+        if ending:
+            ending.cancel()
+        if job:
+            pipeline.restoreCacheDir(editor, job)
+        raise
+    data = {"change": f"Started ({mode}): poll meshroom_get_status for the result", "mode": mode,
             "nodesToProcess": [n.name for n in plan], "skipped": skippedNodes(skipped),
-            "effects": submissionEffects(graph, mode), "warnings": warnings,
+            "effects": submissionEffects(graph, mode, jobDir), "warnings": warnings,
             "nodes": [nodeStatus(n) for n in plan], **computationState(editor), **editState(editor)}
+    if job:
+        data["jobDir"] = job["folder"]
+        data.update(pipeline.writeJobManifest(session, editor, job))
+        pipeline.registerJob(job, graph, [n.name for n in plan], mode)
+        data["finalManifest"] = ("written when the computation ends" if mode == LOCAL else
+                                 "written by the first meshroom_get_status finding the job ended")
+    return data
 
 
 def skippedNodes(nodes) -> list:
@@ -165,11 +193,25 @@ def refreshFromCache(node) -> bool:
     return True
 
 
+def finalizeFarmJobs(session: Session, editor):
+    """ Write the final manifest of the submitter jobs found ended, after reading their nodes' status files. """
+    for job in pipeline.pendingJobs():
+        if job["mode"] == LOCAL or job["graph"] is not editor.graph:
+            continue
+        nodes = [editor.graph.node(name) for name in job["nodes"]]
+        nodes = [n for n in nodes if n is not None]
+        for node in nodes:
+            refreshFromCache(node)
+        if all(n.globalStatus in FINAL_STATUSES for n in nodes):
+            pipeline.writeFinalManifest(session, editor, job["folder"])
+
+
 def getStatus(session: Session, arguments: dict) -> dict:
     editor = session.editor()
     graph = editor.graph
     nodes = findNodes(graph, arguments.get("nodes")) or [n for n in graph.nodes if not n.isBackdropNode]
     sources = ["cache" if refreshFromCache(n) else "memory" for n in nodes]
+    finalizeFarmJobs(session, editor)
     if "cache" in sources:
         editor.updateGraphComputingStatus()
     statuses = [{**nodeStatus(n), "statusSource": source} for n, source in zip(nodes, sources)]
@@ -177,6 +219,11 @@ def getStatus(session: Session, arguments: dict) -> dict:
     for status in statuses:
         counts[status["status"]] = counts.get(status["status"], 0) + 1
     data = {**computationState(editor), "statusCounts": counts}
+    manifests, jobs = pipeline.manifestStates(), pipeline.jobStates()
+    if manifests:
+        data["manifests"] = manifests
+    if jobs:
+        data["jobs"] = jobs
     addList(data, "nodes", statuses)
     return data
 
@@ -296,11 +343,14 @@ def createExecutionTools(session: Session) -> List[Tool]:
                  "submitter, up to 'nodes' (all the leaves by default). It writes the project file (.mg); submitting "
                  "to a farm also clears the undo stack. Refused if the project has unsaved changes or was never "
                  "saved. Nodes already computed with the same parameters (same UID) are skipped and listed; "
-                 "ALREADY_COMPUTED if nothing is left, unless force=true. Without confirm=true, only describes what "
-                 "would run. Returns once started: poll meshroom_get_status for the result.",
+                 "ALREADY_COMPUTED if nothing is left, unless force=true. With 'jobDir', the project's cache moves "
+                 "there and a provenance manifest is written in it. Without confirm=true, only describes what would "
+                 "run. Returns once started: poll meshroom_get_status for the result.",
                  {"type": "object", "additionalProperties": False, "properties": {
                      "nodes": nodeList,
                      "mode": {"type": "string", "description": "'local' (default) or a submitter name"},
+                     "jobDir": {"type": "string", "description": "Job folder inside an output root: receives the "
+                                "project's cache and a provenance manifest"},
                      "force": {"type": "boolean", "description": "Compute again the nodes already computed with "
                                "the same parameters (local only)"},
                      "confirm": {"type": "boolean", "description": "Required to actually start"},

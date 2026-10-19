@@ -94,11 +94,27 @@ def editor(workDir):
 
 
 @pytest.fixture
-def call(editor):
+def outputRoot(workDir):
+    path = os.path.join(workDir, "out")
+    os.mkdir(path)
+    return path
+
+
+@pytest.fixture
+def hashLimit():
+    return [1 << 30]  # Changed by the tests: the session reads it at each call
+
+
+@pytest.fixture
+def call(editor, outputRoot, hashLimit):
+    from meshroom.mcp.background import BackgroundTasks
     from meshroom.mcp.execution import createExecutionTools
+    from meshroom.mcp.pipeline import createPipelineTools
     from meshroom.mcp.tools import Session
-    session = Session(lambda: editor.graph, lambda: [], getEditor=lambda: editor)
-    tools = {t.name: t for t in createExecutionTools(session)}
+    background = BackgroundTasks()
+    session = Session(lambda: editor.graph, lambda: [], getEditor=lambda: editor, getOutputRoots=lambda: [outputRoot],
+                      runInBackground=background.run, getManifestHashLimit=lambda: hashLimit[0])
+    tools = {t.name: t for t in createExecutionTools(session) + createPipelineTools(session)}
 
     def callTool(name, **arguments):
         result = tools[name].handler(arguments)
@@ -255,6 +271,159 @@ def computeAndWait(editor, call, node, **arguments):
 
 
 @pyside
+def test_writeManifest(editor, call, outputRoot, workDir, hashLimit):
+    import hashlib
+    from tests.test_mcpEditing import CameraInit
+    from tests.utils import registeredNodeTypes
+    images = []
+    for name, content in (("a.jpg", b"first image"), ("b.jpg", b"second")):
+        images.append(os.path.join(workDir, name))
+        with open(images[-1], "wb") as f:
+            f.write(content)
+    with registeredNodeTypes([CameraInit]):
+        cameraInit = editor.addNewNode("CameraInit")
+        cameraInit.viewpoints.value = [{"path": p} for p in images]  # Stand-in node: no image viewer involved
+        editor.save()
+        target = os.path.join(outputRoot, "manifest.json")
+        for arguments, code in [({"path": os.path.join(workDir, "m.json")}, "PATH_OUTSIDE_ROOTS"),
+                                ({"path": os.path.join(outputRoot, "m.txt")}, "INVALID_PATH"),
+                                ({"path": os.path.join(outputRoot, "missing", "m.json")}, "INVALID_PATH")]:
+            data, isError = call("meshroom_write_manifest", **arguments)
+            assert isError and data["error"] == code, (arguments, data)
+
+        # Default: no hashes
+        data, isError = call("meshroom_write_manifest", path=target)
+        assert not isError and data["manifest"] == target and data["hashes"] == "skipped"
+        manifest = json.load(open(target))
+        assert manifest["manifestVersion"] == 1 and manifest["project"]["path"] == editor.graph.filepath
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                                  cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).stdout.strip()
+        assert manifest["meshroom"]["source"] == "git" and manifest["meshroom"]["revision"] == revision
+        assert "source" in manifest["aliceVision"]
+        node = next(n for n in manifest["nodes"] if n["name"] == "AppendText_1")
+        assert node["nodeType"] == "AppendText" and node["uid"] == editor.graph.node("AppendText_1")._uid
+        assert node["parameters"]["inputText"] == "Input text from AppendText_1" and node["status"] == "NONE"
+        assert node["outputs"][0]["name"] == "output" and node["outputs"][0]["matches"] == 0
+        files = manifest["sources"]["files"]
+        views = [f for f in files if f["kind"] == "view"]
+        assert [f["path"] for f in views] == images and views[0]["size"] == 11
+        assert views[0]["attributes"] == [f"{cameraInit.name}.viewpoints[0].path"]
+        # The unconnected input File attributes of the other nodes, e.g. the input files of AppendText_1 and _2
+        inputFile = next(f for f in files if f["path"] == editor.graph.node("AppendText_1").input.value)
+        assert inputFile["kind"] == "file" and sorted(inputFile["attributes"]) == ["AppendText_1.input", "AppendText_2.input"]
+        assert not any(a.startswith("AppendFiles_1.input") for f in files for a in f["attributes"])  # Connected
+        assert not any("sha256" in f for f in files)
+
+        # Hashes computed in the background, then the manifest is written again
+        data, isError = call("meshroom_write_manifest", path=target, hashImages=True)
+        assert isError and data["error"] == "FILE_EXISTS"
+        data, isError = call("meshroom_write_manifest", path=target, hashImages=True, overwrite=True)
+        assert not isError and data["hashes"] == "pending"
+        assert json.load(open(target))["sources"]["hashes"] == "pending"
+        assert {"manifest": target, "hashes": "pending"} in call("meshroom_get_status")[0]["manifests"]
+        assert waitFor(lambda: json.load(open(target))["sources"]["hashes"] == "done")
+        files = json.load(open(target))["sources"]["files"]
+        assert files[0]["sha256"] == hashlib.sha256(b"first image").hexdigest()
+        assert all("sha256" in f for f in files if "size" in f)
+        assert {"manifest": target, "hashes": "done"} in call("meshroom_get_status")[0]["manifests"]
+
+        # Over the limit: no hashing
+        hashLimit[0] = 10
+        data, isError = call("meshroom_write_manifest", path=target, hashImages=True, overwrite=True)
+        sources = json.load(open(target))["sources"]
+        assert data["hashes"] == "overLimit" and "note" in sources
+        assert not any("sha256" in f for f in sources["files"])
+
+        # A manifest written again while the previous one is hashed is not overwritten by the late hashes
+        hashLimit[0] = 1 << 30
+        call("meshroom_write_manifest", path=target, hashImages=True, overwrite=True)
+        call("meshroom_write_manifest", path=target, overwrite=True)
+        waitFor(lambda: False, timeout=0.5)
+        assert json.load(open(target))["sources"]["hashes"] == "skipped"
+        editor.removeNodes([cameraInit])
+
+
+@pyside
+def test_nextEmissionCallsBackInTheMainThread():
+    from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal
+    from meshroom.mcp.background import NextEmission
+
+    class Sender(QObject):
+        signal = Signal()
+
+    class Worker(QThread):
+        def run(self):
+            sender.signal.emit()
+            sender.signal.emit()  # Only the first emission counts
+
+    threads, owner, sender, worker = [], QObject(), Sender(), Worker()
+    # Created in the main thread, as meshroom_submit does
+    NextEmission(sender.signal, lambda: threads.append(QThread.currentThread()), owner)
+    # The sender lives in the worker thread: a callable connected without receiver object would run there
+    sender.moveToThread(worker)
+    worker.start()
+    worker.wait()
+    assert waitFor(lambda: threads)
+    QCoreApplication.processEvents()
+    assert threads == [QCoreApplication.instance().thread()]
+
+
+@pyside
+def test_submitInAJobDir(editor, call, outputRoot, workDir, monkeypatch):
+    from PySide6.QtCore import QThread
+    from meshroom.mcp import pipeline
+    writeFinalManifest, threads = pipeline.writeFinalManifest, []
+
+    def recordThread(*args):
+        threads.append(QThread.currentThread())
+        return writeFinalManifest(*args)
+    monkeypatch.setattr(pipeline, "writeFinalManifest", recordThread)
+    node = editor.addNewNode("WriteText")
+    editor.save()
+    defaultCache = editor.graph.cacheDir
+    data, isError = call("meshroom_submit", nodes=[node.name], jobDir=os.path.join(workDir, "job"), confirm=True)
+    assert isError and data["error"] == "PATH_OUTSIDE_ROOTS" and editor.graph.cacheDir == defaultCache
+
+    jobDir = os.path.join(outputRoot, "shot010", "job1")
+    data, isError = call("meshroom_submit", nodes=[node.name], jobDir=jobDir)
+    assert not isError and data["confirmRequired"] and "MeshroomCache" in data["effects"]
+    assert not os.path.exists(jobDir) and editor.graph.cacheDir == defaultCache
+
+    data = computeAndWait(editor, call, node, jobDir=jobDir)
+    assert editor.graph.cacheDir == os.path.join(jobDir, "MeshroomCache")
+    assert node.output.value.startswith(os.path.join(jobDir, "MeshroomCache"))
+    assert json.load(open(editor.graph.filepath))["header"]["cacheDir"]["absoluteCacheDir"] == editor.graph.cacheDir
+    manifest = json.load(open(data["manifest"]))
+    assert os.path.dirname(data["manifest"]) == jobDir and data["jobDir"] == jobDir
+    # Written once started: WriteText may already be running or computed
+    assert next(n for n in manifest["nodes"] if n["name"] == node.name)["status"] in ("SUBMITTED", "RUNNING", "SUCCESS")
+
+    # The final manifest is written when the TaskManager's thread ends
+    final = os.path.join(jobDir, "manifest.final.json")
+    assert waitFor(lambda: os.path.exists(final))
+    assert next(n for n in json.load(open(final))["nodes"] if n["name"] == node.name)["status"] == "SUCCESS"
+    assert threads == [editor.thread()]  # On computeFinished, in the main thread
+    jobs = call("meshroom_get_status", nodes=[node.name])[0]["jobs"]
+    assert {"jobDir": jobDir, "mode": "local", "finalManifest": final} in jobs
+
+
+@pyside
+def test_submitRestoresTheCacheWhenItFails(editor, call, outputRoot, monkeypatch):
+    from meshroom.mcp import execution
+    from meshroom.mcp.tools import ToolError
+    node = editor.addNewNode("WriteText")
+    editor.save()
+    defaultCache = editor.graph.cacheDir
+
+    def refuse(*args):
+        raise ToolError("SUBMIT_REFUSED", "refused for the test")
+    monkeypatch.setattr(execution, "startComputation", refuse)
+    data, isError = call("meshroom_submit", nodes=[node.name], jobDir=os.path.join(outputRoot, "job"), confirm=True)
+    assert isError and data["error"] == "SUBMIT_REFUSED"
+    assert editor.graph.cacheDir == defaultCache
+
+
+@pyside
 def test_submitSkipsComputedNodesUnlessForced(editor, call):
     node = editor.addNewNode("WriteText")
     editor.save()
@@ -274,3 +443,31 @@ def test_submitSkipsComputedNodesUnlessForced(editor, call):
     data = computeAndWait(editor, call, node, force=True)
     assert data["nodesToProcess"] == [node.name] and data["skipped"] == []
     assert node.globalStatus == "SUCCESS" and os.path.getmtime(output) > firstWrite
+
+
+@pyside
+def test_farmJobFinalManifest(editor, call, outputRoot, monkeypatch):
+    import meshroom.core
+    from meshroom.core.graph import loadGraph
+    from meshroom.core.node import ExecMode, Status
+    from meshroom.core.submitter import BaseSubmitter
+
+    class FakeFarm(BaseSubmitter):
+        _name = "fakeFarm"
+
+        def submit(self, nodes, edges, filepath, submitLabel="{projectName}"):
+            return True
+    monkeypatch.setitem(meshroom.core.submitters, "fakeFarm", FakeFarm())
+    jobDir = os.path.join(outputRoot, "farmJob")
+    data, isError = call("meshroom_submit", nodes=["AppendText_1"], mode="fakeFarm", jobDir=jobDir, confirm=True)
+    assert not isError, data
+    final = os.path.join(jobDir, "manifest.final.json")
+    status, _ = call("meshroom_get_status", nodes=["AppendText_2"])
+    assert not os.path.exists(final) and {"jobDir": jobDir, "mode": "fakeFarm", "finalManifest": None} in status["jobs"]
+
+    # The farm ends the job, writing the status files: the next get_status writes the final manifest
+    loadGraph(editor.graph.filepath).node("AppendText_1").upgradeStatusTo(Status.SUCCESS, ExecMode.EXTERN)
+    status, _ = call("meshroom_get_status", nodes=["AppendText_2"])
+    assert {"jobDir": jobDir, "mode": "fakeFarm", "finalManifest": final} in status["jobs"]
+    node = next(n for n in json.load(open(final))["nodes"] if n["name"] == "AppendText_1")
+    assert node["status"] == "SUCCESS" and node["execMode"] == "EXTERN"

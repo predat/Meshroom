@@ -45,7 +45,10 @@ class Session:
     """ What the tools may read from the running application. """
     def __init__(self, getGraph: Callable[[], Optional[Graph]], getProjectRoots: Callable[[], List[str]],
                  getApplicationState: Callable[[], dict] = dict, getEditor: Callable[[], object] = lambda: None,
-                 saveAs: Optional[Callable[[str], None]] = None, getInputRoots: Callable[[], List[str]] = list):
+                 saveAs: Optional[Callable[[str], None]] = None, getInputRoots: Callable[[], List[str]] = list,
+                 getOutputRoots: Callable[[], List[str]] = list,
+                 runInBackground: Callable[[Callable, Callable], None] = lambda work, done: done(work()),
+                 getManifestHashLimit: Callable[[], int] = lambda: 1 << 30):
         self.getGraph = getGraph  # The open project's graph, None when no project is open
         self.getProjectRoots = getProjectRoots  # Folders meshroom_list_projects/save_project may use
         self.getApplicationState = getApplicationState  # Application-level state, added to meshroom_environment
@@ -54,6 +57,10 @@ class Session:
         # Save the open project as a new file like File > Save As does (recent projects); default: editor.saveAs
         self.saveAs = saveAs
         self.getInputRoots = getInputRoots  # Folders meshroom_import_images may read images from
+        self.getOutputRoots = getOutputRoots  # Folders job data and manifests may be written to
+        # runInBackground(work, done): work() off the main thread, then done(result) on it; synchronous by default
+        self.runInBackground = runInBackground
+        self.getManifestHashLimit = getManifestHashLimit  # Bytes of source files a manifest may hash
 
     def graph(self) -> Graph:
         graph = self.getGraph()

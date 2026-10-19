@@ -21,8 +21,10 @@ from meshroom.core.taskManager import TaskManager
 from meshroom.common import Property, Variant, Signal, Slot
 
 from meshroom.env import EnvVar, EnvVarHelpAction
+from meshroom.mcp.background import BackgroundTasks
 from meshroom.mcp.editing import createEditingTools
 from meshroom.mcp.execution import createExecutionTools
+from meshroom.mcp.pipeline import createPipelineTools
 from meshroom.mcp.rpc import Dispatcher
 from meshroom.mcp.tools import Session, createTools
 from meshroom.mcp.transport import McpServer
@@ -336,8 +338,12 @@ class MeshroomApp(QApplication):
             getEditor=lambda: self._activeProject if self._activeProject.active else None,
             saveAs=self.saveProjectAs,
             getInputRoots=lambda: QSettings().value("MCP/inputRoots", [], type=list),
+            getOutputRoots=lambda: QSettings().value("MCP/outputRoots", [], type=list),
+            runInBackground=BackgroundTasks(parent=self).run,
+            getManifestHashLimit=lambda: QSettings().value("MCP/manifestHashLimit", 1 << 30, type=int),
         )
-        mcpTools = createTools(mcpSession) + createEditingTools(mcpSession) + createExecutionTools(mcpSession)
+        mcpTools = (createTools(mcpSession) + createEditingTools(mcpSession) + createExecutionTools(mcpSession)
+                    + createPipelineTools(mcpSession))
         self._mcpServer = McpServer(Dispatcher(meshroom.__version__, mcpTools).handle, parent=self)
         self._mcpServer.runningChanged.connect(self.mcpEnabledChanged)
         self.aboutToQuit.connect(self._mcpServer.stop)
