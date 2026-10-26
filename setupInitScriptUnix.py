@@ -21,6 +21,8 @@ if DIR_NAME not in paths:
     newPaths = []
     for lib in ("lib64", "lib"):
         newPaths.append(os.path.join(DIR_NAME, lib, "PySide6", "Qt", "qml", "QtQuick", "Dialogs"))
+        # Qt libraries required by the QtAliceVision plugins (qtPlugins/), which have no RUNPATH
+        newPaths.append(os.path.join(DIR_NAME, lib, "PySide6", "Qt", "lib"))
         newPaths.append(os.path.join(DIR_NAME, "aliceVision", lib))
         newPaths.append(os.path.join(DIR_NAME, lib))
     newPaths.append(DIR_NAME)
