@@ -11,7 +11,7 @@ on:
         type: string
         required: true
       os:
-        description: "Runner OS: 'ubuntu-22.04', 'windows-latest' or 'macos-latest'"
+        description: "Runner OS: 'ubuntu-22.04', 'windows-latest' or 'macos-15'"
         type: string
         required: true
       alicevision_url:

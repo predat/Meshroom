@@ -150,7 +150,7 @@ jobs:
     if: needs.check-changes.outputs.should_build == 'true'
     uses: ./.github/workflows/build-binary.yml
     with:
-      os: macos-latest
+      os: macos-15
       build_label: ${{ needs.check-changes.outputs.build_label }}
       alicevision_url: ${{ needs.check-changes.outputs.av_macos_url }}
       qtalicevision_url: ${{ needs.check-changes.outputs.qtav_macos_url }}
