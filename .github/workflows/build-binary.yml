@@ -11,17 +11,17 @@ on:
         type: string
         required: true
       os:
-        description: "Runner OS: 'ubuntu-22.04' or 'windows-latest'"
+        description: "Runner OS: 'ubuntu-22.04', 'windows-latest' or 'macos-latest'"
         type: string
         required: true
       alicevision_url:
-        description: "AliceVision nightly archive bundled in aliceVision/"
+        description: "AliceVision nightly archive bundled in aliceVision/, nothing is bundled if empty"
         type: string
-        required: true
+        default: ''
       qtalicevision_url:
-        description: "QtAliceVision nightly archive bundled in qtPlugins/"
+        description: "QtAliceVision nightly archive bundled in qtPlugins/, nothing is bundled if empty"
         type: string
-        required: true
+        default: ''
       pyside6_version:
         description: "PySide6 version, must match the Qt version QtAliceVision is built with"
         type: string
@@ -36,7 +36,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     # Build on Linux in the same distribution as the AliceVision/QtAliceVision nightlies (Rocky 9),
     # so that the bundle does not require a more recent glibc than they do.
-    container: ${{ !startsWith(inputs.os, 'windows') && 'rockylinux:9' || '' }}
+    container: ${{ startsWith(inputs.os, 'ubuntu') && 'rockylinux:9' || '' }}
 
     outputs:
       artifact_name: ${{ steps.set-names.outputs.artifact_name }}
@@ -44,8 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python 3.11 (Windows only)
-        if: runner.os == 'Windows'
+      - name: Set up Python 3.11 (Windows and macOS)
+        if: runner.os != 'Linux'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -59,6 +59,11 @@ jobs:
             echo "output_dir=Meshroom-${{ inputs.build_label }}-windows"   >> "$GITHUB_OUTPUT"
             echo "archive=Meshroom-${{ inputs.build_label }}-windows.zip"  >> "$GITHUB_OUTPUT"
             echo "artifact_name=binary-windows"                            >> "$GITHUB_OUTPUT"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            echo "platform=macos"            >> "$GITHUB_OUTPUT"
+            echo "output_dir=Meshroom-${{ inputs.build_label }}-macos"     >> "$GITHUB_OUTPUT"
+            echo "archive=Meshroom-${{ inputs.build_label }}-macos.tar.gz" >> "$GITHUB_OUTPUT"
+            echo "artifact_name=binary-macos"                              >> "$GITHUB_OUTPUT"
           else
             echo "platform=linux"            >> "$GITHUB_OUTPUT"
             echo "output_dir=Meshroom-${{ inputs.build_label }}-linux"     >> "$GITHUB_OUTPUT"
@@ -105,37 +110,33 @@ jobs:
           if exist examples     rmdir /s /q examples
           if exist include      rmdir /s /q include
 
-      - name: Remove unused PySide6 files (Linux)
-        if: runner.os == 'Linux'
+      - name: Remove unused PySide6 files (Linux and macOS)
+        if: runner.os != 'Windows'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
           cd "${OUTPUT_DIR}/lib/PySide6"
           rm -rf resources translations typesystems examples include
           cd Qt/lib
-          rm -f \
-            *Qt6WebEngine*.so* \
-            *Qt6Designer*.so* \
-            *Qt6Multimedia*.so* \
-            *Qt6SpatialAudio*.so* \
-            *Qt6DataVisualization*.so* \
-            *Qt6Graphs*.so* \
-            *Qt6Bluetooth*.so* \
-            *Qt6Nfc*.so* \
-            *Qt6SerialPort*.so* \
-            *Qt6SerialBus*.so* \
-            *Qt6Sensors*.so* \
-            *Qt6TextToSpeech*.so* \
-            *Qt6VirtualKeyboard*.so* \
-            *Qt6WebSockets*.so* \
-            *Qt6WebChannel*.so* \
-            *Qt6RemoteObjects*.so* \
-            *Qt6Scxml*.so* \
-            *Qt6StateMachine*.so* \
-            *Qt6NetworkAuth*.so*
+          # libQt6<Module>*.so* on Linux, Qt<Module>*.framework on macOS
+          for MODULE in WebEngine Designer Multimedia SpatialAudio DataVisualization Graphs Bluetooth Nfc \
+                        SerialPort SerialBus Sensors TextToSpeech VirtualKeyboard WebSockets WebChannel \
+                        RemoteObjects Scxml StateMachine NetworkAuth; do
+            rm -rf *Qt6${MODULE}*.so* Qt${MODULE}*.framework
+          done
+
+      # No macOS machine at hand: at least check that the frozen executables start.
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        env:
+          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+        run: |
+          "$OUTPUT_DIR/meshroom_compute" -h
+          "$OUTPUT_DIR/meshroom_info" -h
 
       # Image matching in the default pipelines needs the vocabulary tree, not shipped by AliceVision.
       - name: Cache vocabulary tree
+        if: inputs.alicevision_url != ''
         id: cache-voctree
         uses: actions/cache@v4
         with:
@@ -143,7 +144,7 @@ jobs:
           key: voctree-vlfeat_K80L3.SIFT
 
       - name: Download vocabulary tree
-        if: steps.cache-voctree.outputs.cache-hit != 'true'
+        if: inputs.alicevision_url != '' && steps.cache-voctree.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p voctree
@@ -152,6 +153,7 @@ jobs:
 
       # Layout expected by meshroom.setupEnvironment: aliceVision/{bin,lib*,share} and qtPlugins/{qml,imageformats}.
       - name: Bundle AliceVision and QtAliceVision
+        if: inputs.alicevision_url != '' && inputs.qtalicevision_url != ''
         shell: bash
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
@@ -188,8 +190,9 @@ jobs:
           ARCHIVE:    ${{ steps.set-names.outputs.archive }}
         run: Compress-Archive -Path "$env:OUTPUT_DIR" -DestinationPath "$env:ARCHIVE"
 
-      - name: Create archive (Linux)
-        if: github.workflow == 'Nightly' && runner.os == 'Linux'
+      # tar rather than zip: keeps the symlinks of the macOS frameworks
+      - name: Create archive (Linux and macOS)
+        if: github.workflow == 'Nightly' && runner.os != 'Windows'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
           ARCHIVE:    ${{ steps.set-names.outputs.archive }}
