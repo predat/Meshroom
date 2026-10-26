@@ -6,6 +6,11 @@ on:
     - cron: '0 2 * * *'
   # Allow manual trigger from the Actions tab
   workflow_dispatch:
+    inputs:
+      macos_runner:
+        description: "macOS runner, e.g. macos-15-intel when the arm64 ones are saturated"
+        type: string
+        default: macos-15
 
 permissions:
   contents: write  # needed to edit releases, upload/delete assets and update "nightly" tag
@@ -150,7 +155,8 @@ jobs:
     if: needs.check-changes.outputs.should_build == 'true'
     uses: ./.github/workflows/build-binary.yml
     with:
-      os: macos-15
+      # No inputs on scheduled runs
+      os: ${{ inputs.macos_runner || 'macos-15' }}
       build_label: ${{ needs.check-changes.outputs.build_label }}
       alicevision_url: ${{ needs.check-changes.outputs.av_macos_url }}
       qtalicevision_url: ${{ needs.check-changes.outputs.qtav_macos_url }}
@@ -183,6 +189,7 @@ jobs:
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
       QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
       AV_MACOS_ASSET: ${{ needs.check-changes.outputs.av_macos_url }}
+      MACOS_RUNNER: ${{ inputs.macos_runner || 'macos-15' }}
       MACOS_DMG:   dist/binary-macos/Meshroom-${{ needs.check-changes.outputs.build_label }}-macos.dmg
       PYSIDE6_VERSION: ${{ needs.check-changes.outputs.pyside6_version }}
 
@@ -231,7 +238,7 @@ jobs:
       - name: Update release notes
         run: |
           NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
-          MACOS_NOTE='arm64, unsigned: `xattr -dr com.apple.quarantine /Applications/Meshroom.app` before the first launch'
+          MACOS_NOTE="built on ${MACOS_RUNNER}, unsigned: \`xattr -dr com.apple.quarantine /Applications/Meshroom.app\` before the first launch"
           [ -n "$AV_MACOS_ASSET" ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no macOS nightly of it yet"
           MACOS_ROW="| **macOS** | \`$(basename "$MACOS_DMG")\` (${MACOS_NOTE}) |"
           [ -f "$MACOS_DMG" ] || MACOS_ROW="| **macOS** | Not built this time: no macOS runner available, or build failure |"
