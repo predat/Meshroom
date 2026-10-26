@@ -58,16 +58,20 @@ jobs:
             echo "platform=windows"          >> "$GITHUB_OUTPUT"
             echo "output_dir=Meshroom-${{ inputs.build_label }}-windows"   >> "$GITHUB_OUTPUT"
             echo "archive=Meshroom-${{ inputs.build_label }}-windows.zip"  >> "$GITHUB_OUTPUT"
+            echo "root_dir=Meshroom-${{ inputs.build_label }}-windows"     >> "$GITHUB_OUTPUT"
             echo "artifact_name=binary-windows"                            >> "$GITHUB_OUTPUT"
           elif [ "$RUNNER_OS" = "macOS" ]; then
             echo "platform=macos"            >> "$GITHUB_OUTPUT"
             echo "output_dir=Meshroom-${{ inputs.build_label }}-macos"     >> "$GITHUB_OUTPUT"
-            echo "archive=Meshroom-${{ inputs.build_label }}-macos.tar.gz" >> "$GITHUB_OUTPUT"
+            echo "archive=Meshroom-${{ inputs.build_label }}-macos.dmg"    >> "$GITHUB_OUTPUT"
+            # Contents/MacOS links lib/ and the other folders of Contents/Resources
+            echo "root_dir=Meshroom-${{ inputs.build_label }}-macos/Meshroom.app/Contents/MacOS" >> "$GITHUB_OUTPUT"
             echo "artifact_name=binary-macos"                              >> "$GITHUB_OUTPUT"
           else
             echo "platform=linux"            >> "$GITHUB_OUTPUT"
             echo "output_dir=Meshroom-${{ inputs.build_label }}-linux"     >> "$GITHUB_OUTPUT"
             echo "archive=Meshroom-${{ inputs.build_label }}-linux.tar.gz" >> "$GITHUB_OUTPUT"
+            echo "root_dir=Meshroom-${{ inputs.build_label }}-linux"       >> "$GITHUB_OUTPUT"
             echo "artifact_name=binary-linux"                              >> "$GITHUB_OUTPUT"
           fi
 
@@ -94,7 +98,13 @@ jobs:
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
-          python setup.py install_exe -d "$OUTPUT_DIR"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            python setup.py bdist_mac
+            mkdir -p "$OUTPUT_DIR"
+            mv build/Meshroom.app "$OUTPUT_DIR/"
+          else
+            python setup.py install_exe -d "$OUTPUT_DIR"
+          fi
 
       - name: Remove unused PySide6 files (Windows)
         if: runner.os == 'Windows'
@@ -113,9 +123,9 @@ jobs:
       - name: Remove unused PySide6 files (Linux and macOS)
         if: runner.os != 'Windows'
         env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
         run: |
-          cd "${OUTPUT_DIR}/lib/PySide6"
+          cd "${ROOT_DIR}/lib/PySide6"
           rm -rf resources translations typesystems examples include
           cd Qt/lib
           # libQt6<Module>*.so* on Linux, Qt<Module>*.framework on macOS
@@ -129,10 +139,10 @@ jobs:
       - name: Smoke test (macOS)
         if: runner.os == 'macOS'
         env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
         run: |
-          "$OUTPUT_DIR/meshroom_compute" -h
-          "$OUTPUT_DIR/meshroom_info" -h
+          "$ROOT_DIR/meshroom_compute" -h
+          "$ROOT_DIR/meshroom_info" -h
 
       # Image matching in the default pipelines needs the vocabulary tree, not shipped by AliceVision.
       - name: Cache vocabulary tree
@@ -156,31 +166,31 @@ jobs:
         if: inputs.alicevision_url != '' && inputs.qtalicevision_url != ''
         shell: bash
         env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ROOT_DIR:   ${{ steps.set-names.outputs.root_dir }}
           AV_URL:     ${{ inputs.alicevision_url }}
           QTAV_URL:   ${{ inputs.qtalicevision_url }}
         run: |
           set -euo pipefail
-          mkdir -p downloads/qtav "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins"
+          mkdir -p downloads/qtav "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
           curl -fsSL --retry 5 -o "downloads/av" "$AV_URL"
           curl -fsSL --retry 5 -o "downloads/qtav.archive" "$QTAV_URL"
           if [ "$RUNNER_OS" = "Windows" ]; then
             # The AliceVision zip has no top-level folder, the QtAliceVision one has QTAV_install/
-            7z x -bd -y downloads/av -o"$OUTPUT_DIR/aliceVision" > /dev/null
+            7z x -bd -y downloads/av -o"$ROOT_DIR/aliceVision" > /dev/null
             7z x -bd -y downloads/qtav.archive -o"downloads/qtav" > /dev/null
-            cp -r downloads/qtav/*/. "$OUTPUT_DIR/qtPlugins/"
+            cp -r downloads/qtav/*/. "$ROOT_DIR/qtPlugins/"
           else
-            tar -xzf downloads/av -C "$OUTPUT_DIR/aliceVision" --strip-components=1
-            tar -xzf downloads/qtav.archive -C "$OUTPUT_DIR/qtPlugins" --strip-components=1
+            tar -xzf downloads/av -C "$ROOT_DIR/aliceVision" --strip-components=1
+            tar -xzf downloads/qtav.archive -C "$ROOT_DIR/qtPlugins" --strip-components=1
           fi
-          cp voctree/vlfeat_K80L3.SIFT.tree "$OUTPUT_DIR/aliceVision/share/aliceVision/"
+          cp voctree/vlfeat_K80L3.SIFT.tree "$ROOT_DIR/aliceVision/share/aliceVision/"
           # Headers, import libraries and CMake configs are only needed to build against AliceVision
-          rm -rf "$OUTPUT_DIR/aliceVision/include" "$OUTPUT_DIR/aliceVision/share/aliceVision/cmake" "$OUTPUT_DIR/qtPlugins/include"
-          find "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins" -name "*.lib" -delete
-          test -f "$OUTPUT_DIR/aliceVision/share/aliceVision/cameraSensors.db"
-          test -f "$OUTPUT_DIR/aliceVision/share/meshroom/photogrammetry.mg"
-          test -f "$OUTPUT_DIR/qtPlugins/qml/AliceVision/qmldir"
-          ls "$OUTPUT_DIR" "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins"
+          rm -rf "$ROOT_DIR/aliceVision/include" "$ROOT_DIR/aliceVision/share/aliceVision/cmake" "$ROOT_DIR/qtPlugins/include"
+          find "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins" -name "*.lib" -delete
+          test -f "$ROOT_DIR/aliceVision/share/aliceVision/cameraSensors.db"
+          test -f "$ROOT_DIR/aliceVision/share/meshroom/photogrammetry.mg"
+          test -f "$ROOT_DIR/qtPlugins/qml/AliceVision/qmldir"
+          ls "$ROOT_DIR" "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
 
       - name: Create archive (Windows)
         if: github.workflow == 'Nightly' && runner.os == 'Windows'
@@ -190,13 +200,22 @@ jobs:
           ARCHIVE:    ${{ steps.set-names.outputs.archive }}
         run: Compress-Archive -Path "$env:OUTPUT_DIR" -DestinationPath "$env:ARCHIVE"
 
-      # tar rather than zip: keeps the symlinks of the macOS frameworks
-      - name: Create archive (Linux and macOS)
-        if: github.workflow == 'Nightly' && runner.os != 'Windows'
+      - name: Create archive (Linux)
+        if: github.workflow == 'Nightly' && runner.os == 'Linux'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
           ARCHIVE:    ${{ steps.set-names.outputs.archive }}
         run: tar -czf "$ARCHIVE" "$OUTPUT_DIR"
+
+      # Disk image with the app and a link to /Applications to drag it to
+      - name: Create disk image (macOS)
+        if: github.workflow == 'Nightly' && runner.os == 'macOS'
+        env:
+          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ARCHIVE:    ${{ steps.set-names.outputs.archive }}
+        run: |
+          ln -s /Applications "$OUTPUT_DIR/Applications"
+          hdiutil create -volname Meshroom -srcfolder "$OUTPUT_DIR" -format UDZO -ov "$ARCHIVE"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

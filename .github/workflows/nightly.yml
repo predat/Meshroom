@@ -221,14 +221,14 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             "dist/binary-windows/Meshroom-${BUILD_LABEL}-windows.zip" \
             "dist/binary-linux/Meshroom-${BUILD_LABEL}-linux.tar.gz" \
-            "dist/binary-macos/Meshroom-${BUILD_LABEL}-macos.tar.gz"
+            "dist/binary-macos/Meshroom-${BUILD_LABEL}-macos.dmg"
 
       # ── Update release body ──────────────────────────────────
       # Rewrite the release body with the latest build info.
       - name: Update release notes
         run: |
           NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
-          MACOS_NOTE='arm64, unsigned: `xattr -dr com.apple.quarantine <folder>` before the first launch'
+          MACOS_NOTE='arm64, unsigned: `xattr -dr com.apple.quarantine /Applications/Meshroom.app` before the first launch'
           [ -n "$AV_MACOS_ASSET" ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no macOS nightly of it yet"
  
           cat > nightly_release_notes.md << EOF
@@ -241,7 +241,7 @@ jobs:
           | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
           | **Windows** | \`Meshroom-${BUILD_LABEL}-windows.zip\` |
           | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` (Rocky 9, glibc >= 2.34) |
-          | **macOS** | \`Meshroom-${BUILD_LABEL}-macos.tar.gz\` (${MACOS_NOTE}) |
+          | **macOS** | \`Meshroom-${BUILD_LABEL}-macos.dmg\` (${MACOS_NOTE}) |
           | AliceVision | [\`$(basename "$AV_ASSET")\`](https://github.com/${ALICEVISION_REPO}/releases/tag/nightly) |
           | QtAliceVision | [\`$(basename "$QTAV_ASSET")\`](https://github.com/${QTALICEVISION_REPO}/releases/tag/nightly) |
           | PySide6 | ${PYSIDE6_VERSION} |
