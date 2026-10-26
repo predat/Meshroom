@@ -14,6 +14,18 @@ on:
         description: "Runner OS: 'ubuntu-22.04' or 'windows-latest'"
         type: string
         required: true
+      alicevision_url:
+        description: "AliceVision nightly archive bundled in aliceVision/"
+        type: string
+        required: true
+      qtalicevision_url:
+        description: "QtAliceVision nightly archive bundled in qtPlugins/"
+        type: string
+        required: true
+      pyside6_version:
+        description: "PySide6 version, must match the Qt version QtAliceVision is built with"
+        type: string
+        required: true
     outputs:
       artifact_name:
         description: "Name of the uploaded artifact"
@@ -22,6 +34,9 @@ on:
 jobs:
   build:
     runs-on: ${{ inputs.os }}
+    # Build on Linux in the same distribution as the AliceVision/QtAliceVision nightlies (Rocky 9),
+    # so that the bundle does not require a more recent glibc than they do.
+    container: ${{ !startsWith(inputs.os, 'windows') && 'rockylinux:9' || '' }}
 
     outputs:
       artifact_name: ${{ steps.set-names.outputs.artifact_name }}
@@ -29,7 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11 (Windows only)
+        if: runner.os == 'Windows'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -53,18 +69,20 @@ jobs:
       - name: Install system dependencies (Linux only)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgl1 libglib2.0-0 libdbus-1-3 \
-            libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 \
-            libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 libxkbcommon-x11-0
+          dnf install -y \
+            python3.11 python3.11-pip binutils findutils tar gzip zstd \
+            mesa-libGL mesa-libEGL glib2 dbus-libs fontconfig freetype \
+            libxkbcommon libxkbcommon-x11 libX11 libX11-xcb libxcb
+          dnf clean all
+          python3.11 -m venv /opt/venv
+          echo "/opt/venv/bin" >> "$GITHUB_PATH"
 
       - name: Install Python dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r dev_requirements.txt
+          pip install "PySide6==${{ inputs.pyside6_version }}"
 
       - name: Build executable
         shell: bash
@@ -72,15 +90,6 @@ jobs:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
           python setup.py install_exe -d "$OUTPUT_DIR"
-
-      - name: Fix missing PySide6 DLL (Windows only)
-        if: runner.os == 'Windows'
-        shell: cmd
-        env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
-        run: |
-          curl -L "https://drive.google.com/uc?export=download&id=1vhPDmDQJJfM_hBD7KVqRfh8tiqTCN7Jv" ^
-            -o "%OUTPUT_DIR%\lib\PySide6\Qt63DQuickScene3D.dll"
 
       - name: Remove unused PySide6 files (Windows)
         if: runner.os == 'Windows'
@@ -131,6 +140,52 @@ jobs:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
           find "$OUTPUT_DIR" -name "*.so*" -not -type l | xargs strip --strip-unneeded
+
+      # Image matching in the default pipelines needs the vocabulary tree, not shipped by AliceVision.
+      - name: Cache vocabulary tree
+        id: cache-voctree
+        uses: actions/cache@v4
+        with:
+          path: voctree
+          key: voctree-vlfeat_K80L3.SIFT
+
+      - name: Download vocabulary tree
+        if: steps.cache-voctree.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p voctree
+          curl -fsSL --retry 5 -o voctree/vlfeat_K80L3.SIFT.tree \
+            https://gitlab.com/alicevision/trainedVocabularyTreeData/raw/master/vlfeat_K80L3.SIFT.tree
+
+      # Layout expected by meshroom.setupEnvironment: aliceVision/{bin,lib*,share} and qtPlugins/{qml,imageformats}.
+      - name: Bundle AliceVision and QtAliceVision
+        shell: bash
+        env:
+          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          AV_URL:     ${{ inputs.alicevision_url }}
+          QTAV_URL:   ${{ inputs.qtalicevision_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloads/qtav "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins"
+          curl -fsSL --retry 5 -o "downloads/av" "$AV_URL"
+          curl -fsSL --retry 5 -o "downloads/qtav.archive" "$QTAV_URL"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # The AliceVision zip has no top-level folder, the QtAliceVision one has QTAV_install/
+            7z x -bd -y downloads/av -o"$OUTPUT_DIR/aliceVision" > /dev/null
+            7z x -bd -y downloads/qtav.archive -o"downloads/qtav" > /dev/null
+            cp -r downloads/qtav/*/. "$OUTPUT_DIR/qtPlugins/"
+          else
+            tar -xzf downloads/av -C "$OUTPUT_DIR/aliceVision" --strip-components=1
+            tar -xzf downloads/qtav.archive -C "$OUTPUT_DIR/qtPlugins" --strip-components=1
+          fi
+          cp voctree/vlfeat_K80L3.SIFT.tree "$OUTPUT_DIR/aliceVision/share/aliceVision/"
+          # Headers, import libraries and CMake configs are only needed to build against AliceVision
+          rm -rf "$OUTPUT_DIR/aliceVision/include" "$OUTPUT_DIR/aliceVision/share/aliceVision/cmake" "$OUTPUT_DIR/qtPlugins/include"
+          find "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins" -name "*.lib" -delete
+          test -f "$OUTPUT_DIR/aliceVision/share/aliceVision/cameraSensors.db"
+          test -f "$OUTPUT_DIR/aliceVision/share/meshroom/photogrammetry.mg"
+          test -f "$OUTPUT_DIR/qtPlugins/qml/AliceVision/qmldir"
+          ls "$OUTPUT_DIR" "$OUTPUT_DIR/aliceVision" "$OUTPUT_DIR/qtPlugins"
 
       - name: Create archive (Windows)
         if: github.workflow == 'Nightly' && runner.os == 'Windows'
