@@ -22,7 +22,8 @@ class PlatformExecutable(Executable):
     exeExtensions = {
         Windows: ".exe",
         Linux: "",
-        Darwin: ".app"
+        # build_exe makes plain executables, an ".app" suffix would not make a bundle
+        Darwin: ""
     }
 
     def __init__(self, script, initScript=None, base=None, targetName=None, icons=None, shortcutName=None,
