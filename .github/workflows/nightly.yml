@@ -18,8 +18,8 @@ permissions:
 env:
   # Nightly binaries bundled into the Meshroom nightly
   ALICEVISION_REPO: alicevision/AliceVision
-  # TODO: switch to alicevision/QtAliceVision once it publishes its own nightly
-  QTALICEVISION_REPO: fabiencastan/QtAliceVision
+  # TODO: switch to alicevision/QtAliceVision once it publishes its own nightly (alicevision/QtAliceVision#109)
+  QTALICEVISION_REPO: predat/QtAliceVision
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ jobs:
           fetch-tags: true  # required to find the previous nightly tag
 
       # The QtAliceVision plugins only load in the Qt they were built with:
-      # read its version from the QtAliceVision workflow at the nightly commit.
+      # read its version from the QtAliceVision release notes.
       - name: Resolve AliceVision and QtAliceVision nightlies
         id: deps
         env:
@@ -64,12 +64,13 @@ jobs:
           AV_WINDOWS_URL=$(nightlyAsset "$ALICEVISION_REPO" windows.zip)
           QTAV_LINUX_URL=$(nightlyAsset "$QTALICEVISION_REPO" linux.tar.gz)
           QTAV_WINDOWS_URL=$(nightlyAsset "$QTALICEVISION_REPO" windows.zip)
-          # Asset name: qtAliceVision-nightly-<date>-<short sha>-linux.tar.gz
-          QTAV_SHORT_SHA=$(basename "$QTAV_LINUX_URL" | sed -E 's/^qtAliceVision-nightly-[0-9]+-([0-9a-f]+)-linux\.tar\.gz$/\1/')
-          QTAV_SHA=$(gh api "repos/${QTALICEVISION_REPO}/commits/${QTAV_SHORT_SHA}" --jq '.sha')
-          PYSIDE6_VERSION=$(gh api "repos/${QTALICEVISION_REPO}/contents/.github/workflows/build-linux.yml?ref=${QTAV_SHA}" \
-                            -H "Accept: application/vnd.github.raw" \
-                            | sed -nE 's/^\s*QT_VERSION:\s*"?([0-9.]+)"?\s*$/\1/p' | head -n1)
+          # Release notes row: | `<archive>` | <platform> | <Qt version> | `<AliceVision archive>` |
+          QTAV_LINUX_ROW=$(gh release view nightly --repo "$QTALICEVISION_REPO" --json body --jq '.body' \
+                           | grep -F "$(basename "$QTAV_LINUX_URL")")
+          PYSIDE6_VERSION=$(cut -d'|' -f4 <<< "$QTAV_LINUX_ROW" | tr -d ' \r')
+          QTAV_AV_ASSET=$(cut -d'|' -f5 <<< "$QTAV_LINUX_ROW" | tr -d ' `\r')
+          [ "$QTAV_AV_ASSET" = "$(basename "$AV_LINUX_URL")" ] \
+            || echo "::warning::QtAliceVision is built against ${QTAV_AV_ASSET}, not the bundled $(basename "$AV_LINUX_URL")"
           for v in AV_LINUX_URL AV_WINDOWS_URL QTAV_LINUX_URL QTAV_WINDOWS_URL PYSIDE6_VERSION; do
             echo "$v=${!v}"
             test -n "${!v}"
