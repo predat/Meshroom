@@ -10,6 +10,8 @@ paths = os.environ.get("ALICEVISION_LIBPATH", "").split(os.pathsep)
 if DIR_NAME not in paths:
     paths.insert(0, DIR_NAME)
     paths.insert(0, os.path.join(DIR_NAME, "lib"))
+    # Qt DLLs required by the QtAliceVision plugins (qtPlugins/)
+    paths.insert(0, os.path.join(DIR_NAME, "lib", "PySide6"))
     paths.insert(0, os.path.join(DIR_NAME, "aliceVision", "lib"))
     paths.insert(0, os.path.join(DIR_NAME, "aliceVision", "bin"))
 
