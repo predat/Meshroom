@@ -127,12 +127,12 @@ jobs:
         run: |
           cd "${ROOT_DIR}/lib/PySide6"
           rm -rf resources translations typesystems examples include
-          cd Qt/lib
-          # libQt6<Module>*.so* on Linux, Qt<Module>*.framework on macOS
+          # Qt libraries: Qt/lib/libQt6<Module>*.so* on Linux, while on macOS
+          # cx_Freeze extracts the binaries of the frameworks as lib/Qt<Module>*
           for MODULE in WebEngine Designer Multimedia SpatialAudio DataVisualization Graphs Bluetooth Nfc \
                         SerialPort SerialBus Sensors TextToSpeech VirtualKeyboard WebSockets WebChannel \
                         RemoteObjects Scxml StateMachine NetworkAuth; do
-            rm -rf *Qt6${MODULE}*.so* Qt${MODULE}*.framework
+            rm -rf Qt/lib/*Qt6${MODULE}*.so* ../Qt${MODULE}*
           done
 
       # No macOS machine at hand: at least check that the frozen executables start.
