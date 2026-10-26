@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write  # needed to edit releases, upload/delete assets and update "nightly" tag
 
+env:
+  # Nightly binaries bundled into the Meshroom nightly
+  ALICEVISION_REPO: alicevision/AliceVision
+  # TODO: switch to alicevision/QtAliceVision once it publishes its own nightly
+  QTALICEVISION_REPO: fabiencastan/QtAliceVision
+
 jobs:
   # ────────────────────────────────────────────────────────────
   # Guard: skip everything if develop hasn't changed since the
@@ -23,6 +29,11 @@ jobs:
       short_sha:    ${{ steps.check.outputs.short_sha }}
       full_sha:     ${{ steps.check.outputs.full_sha }}
       build_label:  ${{ steps.check.outputs.build_label }}
+      av_linux_url:     ${{ steps.deps.outputs.av_linux_url }}
+      av_windows_url:   ${{ steps.deps.outputs.av_windows_url }}
+      qtav_linux_url:   ${{ steps.deps.outputs.qtav_linux_url }}
+      qtav_windows_url: ${{ steps.deps.outputs.qtav_windows_url }}
+      pyside6_version:  ${{ steps.deps.outputs.pyside6_version }}
 
     steps:
       - name: Checkout develop
@@ -30,6 +41,33 @@ jobs:
         with:
           ref: develop
           fetch-tags: true  # required to find the previous nightly tag
+
+      # The QtAliceVision plugins only load in the Qt they were built with:
+      # read its version from the QtAliceVision workflow at the nightly commit.
+      - name: Resolve AliceVision and QtAliceVision nightlies
+        id: deps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          nightlyAsset() {
+            gh release view nightly --repo "$1" --json assets --jq ".assets[] | select(.name | endswith(\"$2\")) | .url"
+          }
+          AV_LINUX_URL=$(nightlyAsset "$ALICEVISION_REPO" linux.tar.gz)
+          AV_WINDOWS_URL=$(nightlyAsset "$ALICEVISION_REPO" windows.zip)
+          QTAV_LINUX_URL=$(nightlyAsset "$QTALICEVISION_REPO" linux.tar.gz)
+          QTAV_WINDOWS_URL=$(nightlyAsset "$QTALICEVISION_REPO" windows.zip)
+          # Asset name: qtAliceVision-nightly-<date>-<short sha>-linux.tar.gz
+          QTAV_SHORT_SHA=$(basename "$QTAV_LINUX_URL" | sed -E 's/^qtAliceVision-nightly-[0-9]+-([0-9a-f]+)-linux\.tar\.gz$/\1/')
+          QTAV_SHA=$(gh api "repos/${QTALICEVISION_REPO}/commits/${QTAV_SHORT_SHA}" --jq '.sha')
+          PYSIDE6_VERSION=$(gh api "repos/${QTALICEVISION_REPO}/contents/.github/workflows/build-linux.yml?ref=${QTAV_SHA}" \
+                            -H "Accept: application/vnd.github.raw" \
+                            | sed -nE 's/^\s*QT_VERSION:\s*"?([0-9.]+)"?\s*$/\1/p' | head -n1)
+          for v in AV_LINUX_URL AV_WINDOWS_URL QTAV_LINUX_URL QTAV_WINDOWS_URL PYSIDE6_VERSION; do
+            echo "$v=${!v}"
+            test -n "${!v}"
+            echo "${v,,}=${!v}" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Determine whether a build is needed
         id: check
@@ -56,8 +94,16 @@ jobs:
           # Read the SHA of the last "nightly" git tag
           LAST_SHA=$(git rev-parse --short nightly 2>/dev/null || true)
 
-          if [ "$SHORT_SHA" = "$LAST_SHA" ]; then
-            echo "develop unchanged since last nightly (SHA: $SHORT_SHA). Skipping."
+          # The release notes list the bundled AliceVision/QtAliceVision archives:
+          # also rebuild when one of them has been updated.
+          BODY=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json body --jq '.body' 2>/dev/null || true)
+          DEPS_CHANGED=false
+          for ASSET in "$(basename "${{ steps.deps.outputs.av_linux_url }}")" "$(basename "${{ steps.deps.outputs.qtav_linux_url }}")"; do
+            grep -qF "$ASSET" <<< "$BODY" || DEPS_CHANGED=true
+          done
+
+          if [ "$SHORT_SHA" = "$LAST_SHA" ] && [ "$DEPS_CHANGED" = false ]; then
+            echo "develop and bundled nightlies unchanged since last nightly (SHA: $SHORT_SHA). Skipping."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
             echo "New commits detected (current: $SHORT_SHA, last nightly: ${LAST_SHA:-none}). Building."
@@ -72,6 +118,9 @@ jobs:
     with:
       os: windows-latest
       build_label: ${{ needs.check-changes.outputs.build_label }}
+      alicevision_url: ${{ needs.check-changes.outputs.av_windows_url }}
+      qtalicevision_url: ${{ needs.check-changes.outputs.qtav_windows_url }}
+      pyside6_version: ${{ needs.check-changes.outputs.pyside6_version }}
 
   build-linux:
     name: Build Linux binary
@@ -81,6 +130,9 @@ jobs:
     with:
       os: ubuntu-22.04
       build_label: ${{ needs.check-changes.outputs.build_label }}
+      alicevision_url: ${{ needs.check-changes.outputs.av_linux_url }}
+      qtalicevision_url: ${{ needs.check-changes.outputs.qtav_linux_url }}
+      pyside6_version: ${{ needs.check-changes.outputs.pyside6_version }}
 
   # ────────────────────────────────────────────────────────────
   # Update the single persistent "nightly" pre-release:
@@ -102,6 +154,9 @@ jobs:
       SHORT_SHA:   ${{ needs.check-changes.outputs.short_sha }}
       BUILD_LABEL: ${{ needs.check-changes.outputs.build_label }}
       GH_TOKEN:    ${{ github.token }}
+      AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
+      QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
+      PYSIDE6_VERSION: ${{ needs.check-changes.outputs.pyside6_version }}
 
     steps:
       - name: Download all build artifacts
@@ -159,7 +214,10 @@ jobs:
           | Date   | ${NOW} |
           | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
           | **Windows** | \`Meshroom-${BUILD_LABEL}-windows.zip\` |
-          | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` |
+          | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` (Rocky 9, glibc >= 2.34) |
+          | AliceVision | [\`$(basename "$AV_ASSET")\`](https://github.com/${ALICEVISION_REPO}/releases/tag/nightly) |
+          | QtAliceVision | [\`$(basename "$QTAV_ASSET")\`](https://github.com/${QTALICEVISION_REPO}/releases/tag/nightly) |
+          | PySide6 | ${PYSIDE6_VERSION} |
           EOF
  
           gh release edit nightly \
