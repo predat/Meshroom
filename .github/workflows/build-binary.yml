@@ -134,13 +134,6 @@ jobs:
             *Qt6StateMachine*.so* \
             *Qt6NetworkAuth*.so*
 
-      - name: Strip debug symbols from .so files (Linux)
-        if: runner.os == 'Linux'
-        env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
-        run: |
-          find "$OUTPUT_DIR" -name "*.so*" -not -type l | xargs strip --strip-unneeded
-
       # Image matching in the default pipelines needs the vocabulary tree, not shipped by AliceVision.
       - name: Cache vocabulary tree
         id: cache-voctree
