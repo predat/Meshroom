@@ -163,10 +163,14 @@ jobs:
   #   - prepend a build entry to the release body
   #   - prune body entries older than 3 days
   # ────────────────────────────────────────────────────────────
+  # The macOS build does not block the release: the hosted macOS arm64 runners
+  # are often saturated, and its job then fails without having started.
   release:
     name: Update nightly release
     needs: [check-changes, build-windows, build-linux, build-macos]
-    if: needs.check-changes.outputs.should_build == 'true'
+    if: >-
+      !cancelled() && needs.check-changes.outputs.should_build == 'true' &&
+      needs.build-windows.result == 'success' && needs.build-linux.result == 'success'
     runs-on: ubuntu-latest
 
     permissions:
@@ -179,6 +183,7 @@ jobs:
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
       QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
       AV_MACOS_ASSET: ${{ needs.check-changes.outputs.av_macos_url }}
+      MACOS_DMG:   dist/binary-macos/Meshroom-${{ needs.check-changes.outputs.build_label }}-macos.dmg
       PYSIDE6_VERSION: ${{ needs.check-changes.outputs.pyside6_version }}
 
     steps:
@@ -201,7 +206,7 @@ jobs:
 
       # ── Replace assets ───────────────────────────────────────
       # Delete every existing asset on the release, then upload the fresh ones.
-      # This keeps the release page clean: always exactly three assets.
+      # This keeps the release page clean: one asset per platform.
       - name: Delete existing assets
         run: |
           gh release view nightly \
@@ -217,11 +222,9 @@ jobs:
       - name: Upload new assets
         run: |
           find dist/ -type f -ls
-          gh release upload nightly \
-            --repo "$GITHUB_REPOSITORY" \
-            "dist/binary-windows/Meshroom-${BUILD_LABEL}-windows.zip" \
-            "dist/binary-linux/Meshroom-${BUILD_LABEL}-linux.tar.gz" \
-            "dist/binary-macos/Meshroom-${BUILD_LABEL}-macos.dmg"
+          ASSETS=("dist/binary-windows/Meshroom-${BUILD_LABEL}-windows.zip" "dist/binary-linux/Meshroom-${BUILD_LABEL}-linux.tar.gz")
+          [ ! -f "$MACOS_DMG" ] || ASSETS+=("$MACOS_DMG")
+          gh release upload nightly --repo "$GITHUB_REPOSITORY" "${ASSETS[@]}"
 
       # ── Update release body ──────────────────────────────────
       # Rewrite the release body with the latest build info.
@@ -230,6 +233,8 @@ jobs:
           NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
           MACOS_NOTE='arm64, unsigned: `xattr -dr com.apple.quarantine /Applications/Meshroom.app` before the first launch'
           [ -n "$AV_MACOS_ASSET" ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no macOS nightly of it yet"
+          MACOS_ROW="| **macOS** | \`$(basename "$MACOS_DMG")\` (${MACOS_NOTE}) |"
+          [ -f "$MACOS_DMG" ] || MACOS_ROW="| **macOS** | Not built this time: no macOS runner available, or build failure |"
  
           cat > nightly_release_notes.md << EOF
           > [!WARNING]
@@ -241,7 +246,7 @@ jobs:
           | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
           | **Windows** | \`Meshroom-${BUILD_LABEL}-windows.zip\` |
           | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` (Rocky 9, glibc >= 2.34) |
-          | **macOS** | \`Meshroom-${BUILD_LABEL}-macos.dmg\` (${MACOS_NOTE}) |
+          ${MACOS_ROW}
           | AliceVision | [\`$(basename "$AV_ASSET")\`](https://github.com/${ALICEVISION_REPO}/releases/tag/nightly) |
           | QtAliceVision | [\`$(basename "$QTAV_ASSET")\`](https://github.com/${QTALICEVISION_REPO}/releases/tag/nightly) |
           | PySide6 | ${PYSIDE6_VERSION} |
