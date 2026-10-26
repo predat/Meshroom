@@ -187,6 +187,18 @@ if platform.system() == PlatformExecutable.Linux:
         ]
     })
 
+# macOS application bundle: the first executable (the GUI) is the one launched by the bundle
+bdist_mac_options = {
+    "bundle_name": "Meshroom",
+    "iconfile": "meshroom/ui/img/meshroom.icns",
+    "plist_items": [
+        ("CFBundleName", "Meshroom"),
+        ("CFBundleIdentifier", "org.alicevision.meshroom"),
+        # Bundle versions only allow numbers, without the "+<status>" suffix
+        ("CFBundleShortVersionString", meshroom.__version__.split("+")[0]),
+    ],
+}
+
 executables = [
     # GUI
     PlatformExecutable(
@@ -213,7 +225,7 @@ setup(
         "cx_Freeze"
     ],
     version=meshroom.__version__,
-    options={"build_exe": build_exe_options},
+    options={"build_exe": build_exe_options, "bdist_mac": bdist_mac_options},
     executables=executables,
     cmdclass=cmdclass,
 )
