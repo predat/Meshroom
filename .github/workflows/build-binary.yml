@@ -148,7 +148,7 @@ jobs:
       - name: Cache vocabulary tree
         if: inputs.alicevision_url != ''
         id: cache-voctree
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: voctree
           key: voctree-vlfeat_K80L3.SIFT
