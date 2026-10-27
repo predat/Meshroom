@@ -188,7 +188,7 @@ jobs:
           rm -rf "$ROOT_DIR/aliceVision/include" "$ROOT_DIR/aliceVision/share/aliceVision/cmake" "$ROOT_DIR/qtPlugins/include"
           find "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins" -name "*.lib" -delete
           test -f "$ROOT_DIR/aliceVision/share/aliceVision/cameraSensors.db"
-          test -f "$ROOT_DIR/aliceVision/share/meshroom/photogrammetry.mg"
+          test -f "$ROOT_DIR/aliceVision/share/meshroom/photogrammetry.mgt"
           test -f "$ROOT_DIR/qtPlugins/qml/AliceVision/qmldir"
           ls "$ROOT_DIR" "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
 
