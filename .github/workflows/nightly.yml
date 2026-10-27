@@ -18,8 +18,7 @@ permissions:
 env:
   # Nightly binaries bundled into the Meshroom nightly
   ALICEVISION_REPO: ${{ vars.ALICEVISION_REPO || 'alicevision/AliceVision' }}
-  # TODO: switch to alicevision/QtAliceVision once it publishes its own nightly (alicevision/QtAliceVision#109)
-  QTALICEVISION_REPO: predat/QtAliceVision
+  QTALICEVISION_REPO: ${{ vars.QTALICEVISION_REPO || 'alicevision/QtAliceVision' }}
 
 jobs:
   # ────────────────────────────────────────────────────────────
