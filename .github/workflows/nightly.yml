@@ -1,9 +1,9 @@
 name: Nightly
 
 on:
-  schedule:
-    # Runs every day at 02:00 UTC
-    - cron: '0 2 * * *'
+  # Sent by the QtAliceVision nightly once its archives are published
+  repository_dispatch:
+    types: [qtalicevision-nightly]
   # Allow manual trigger from the Actions tab
   workflow_dispatch:
     inputs:
