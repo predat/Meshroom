@@ -224,8 +224,9 @@ jobs:
           ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
         run: |
           python .github/scripts/macos_bundle.py "$ROOT_DIR"
-          # No --help option: without arguments the binaries print their usage and exit 1
-          USAGE=$("$ROOT_DIR/aliceVision/bin/aliceVision_cameraInit" 2>&1 || true)
+          # No --help option: without arguments the binaries print their usage and exit 1.
+          # ALICEVISION_ROOT is set by Meshroom at runtime, the binaries abort without it.
+          USAGE=$(ALICEVISION_ROOT="$ROOT_DIR/aliceVision" "$ROOT_DIR/aliceVision/bin/aliceVision_cameraInit" 2>&1 || true)
           grep -q maxCoresAvailable <<< "$USAGE" || { echo "$USAGE"; exit 1; }
 
       - name: Create archive (Windows)
