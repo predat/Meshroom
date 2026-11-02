@@ -192,6 +192,20 @@ jobs:
           test -f "$ROOT_DIR/qtPlugins/qml/AliceVision/qmldir"
           ls "$ROOT_DIR" "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
 
+      # The QtAliceVision plugins are added after cx_Freeze made the references of the bundle relative:
+      # point them to the bundled AliceVision and Qt, then check that nothing is loaded from the build
+      # machine (Homebrew is installed on this runner) and that AliceVision runs from the bundle.
+      - name: Fix up and check AliceVision and QtAliceVision (macOS)
+        if: runner.os == 'macOS' && inputs.alicevision_url != '' && inputs.qtalicevision_url != ''
+        shell: bash
+        env:
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
+        run: |
+          python .github/scripts/macos_bundle.py "$ROOT_DIR"
+          # No --help option: without arguments the binaries print their usage and exit 1
+          USAGE=$("$ROOT_DIR/aliceVision/bin/aliceVision_cameraInit" 2>&1 || true)
+          grep -q maxCoresAvailable <<< "$USAGE" || { echo "$USAGE"; exit 1; }
+
       - name: Create archive (Windows)
         if: github.workflow == 'Nightly' && runner.os == 'Windows'
         shell: pwsh
