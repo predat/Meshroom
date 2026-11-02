@@ -75,8 +75,8 @@ jobs:
             test -n "${!v}"
             echo "${v,,}=${!v}" >> "$GITHUB_OUTPUT"
           done
-          # No macOS nightly yet: Meshroom is built without AliceVision until there is one.
-          # The asset name is a guess, to check once they publish it.
+          # Optional: their macOS builds do not block their release, Meshroom is then built without AliceVision.
+          # AliceVision also publishes its dependencies as -macos-deps.tar.gz, not matched here.
           AV_MACOS_URL=$(nightlyAsset "$ALICEVISION_REPO" macos.tar.gz)
           QTAV_MACOS_URL=$(nightlyAsset "$QTALICEVISION_REPO" macos.tar.gz)
           for v in AV_MACOS_URL QTAV_MACOS_URL; do
@@ -188,7 +188,7 @@ jobs:
       GH_TOKEN:    ${{ github.token }}
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
       QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
-      AV_MACOS_ASSET: ${{ needs.check-changes.outputs.av_macos_url }}
+      MACOS_WITH_AV: ${{ needs.build-macos.outputs.alicevision_bundled }}
       MACOS_RUNNER: ${{ inputs.macos_runner || 'macos-15' }}
       MACOS_DMG:   dist/binary-macos/Meshroom-${{ needs.check-changes.outputs.build_label }}-macos.dmg
       PYSIDE6_VERSION: ${{ needs.check-changes.outputs.pyside6_version }}
@@ -239,7 +239,8 @@ jobs:
         run: |
           NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
           MACOS_NOTE="built on ${MACOS_RUNNER}, unsigned: \`xattr -dr com.apple.quarantine /Applications/Meshroom.app\` before the first launch"
-          [ -n "$AV_MACOS_ASSET" ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no macOS nightly of it yet"
+          # Not bundled without both macOS nightlies, or when they do not match the runner architecture
+          [ "$MACOS_WITH_AV" = true ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no AliceVision and QtAliceVision macOS nightlies for this architecture"
           MACOS_ROW="| **macOS** | \`$(basename "$MACOS_DMG")\` (${MACOS_NOTE}) |"
           [ -f "$MACOS_DMG" ] || MACOS_ROW="| **macOS** | Not built this time: no macOS runner available, or build failure |"
  

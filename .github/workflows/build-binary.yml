@@ -30,6 +30,9 @@ on:
       artifact_name:
         description: "Name of the uploaded artifact"
         value: ${{ jobs.build.outputs.artifact_name }}
+      alicevision_bundled:
+        description: "'true' if AliceVision and QtAliceVision are bundled"
+        value: ${{ jobs.build.outputs.alicevision_bundled }}
 
 jobs:
   build:
@@ -40,6 +43,7 @@ jobs:
 
     outputs:
       artifact_name: ${{ steps.set-names.outputs.artifact_name }}
+      alicevision_bundled: ${{ steps.bundle-av.outputs.bundled == 'true' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -163,6 +167,7 @@ jobs:
 
       # Layout expected by meshroom.setupEnvironment: aliceVision/{bin,lib*,share} and qtPlugins/{qml,imageformats}.
       - name: Bundle AliceVision and QtAliceVision
+        id: bundle-av
         if: inputs.alicevision_url != '' && inputs.qtalicevision_url != ''
         shell: bash
         env:
@@ -183,6 +188,20 @@ jobs:
             tar -xzf downloads/av -C "$ROOT_DIR/aliceVision" --strip-components=1
             tar -xzf downloads/qtav.archive -C "$ROOT_DIR/qtPlugins" --strip-components=1
           fi
+          # The macOS nightlies are built on the arm64 runners: the app would not load them on
+          # another architecture (e.g. built on macos-15-intel), ship it without AliceVision then.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ARCH=$(uname -m)
+            for BIN in "$ROOT_DIR/aliceVision/bin/aliceVision_cameraInit" "$ROOT_DIR"/qtPlugins/qml/AliceVision/*.dylib; do
+              ARCHS=$(lipo -archs "$BIN")
+              if [[ " $ARCHS " != *" $ARCH "* ]]; then
+                echo "::warning::$(basename "$BIN") is built for ${ARCHS}, not ${ARCH}: AliceVision is not bundled"
+                rm -rf "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
+                echo "bundled=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            done
+          fi
           cp voctree/vlfeat_K80L3.SIFT.tree "$ROOT_DIR/aliceVision/share/aliceVision/"
           # Headers, import libraries and CMake configs are only needed to build against AliceVision
           rm -rf "$ROOT_DIR/aliceVision/include" "$ROOT_DIR/aliceVision/share/aliceVision/cmake" "$ROOT_DIR/qtPlugins/include"
@@ -191,12 +210,13 @@ jobs:
           test -f "$ROOT_DIR/aliceVision/share/meshroom/photogrammetry.mgt"
           test -f "$ROOT_DIR/qtPlugins/qml/AliceVision/qmldir"
           ls "$ROOT_DIR" "$ROOT_DIR/aliceVision" "$ROOT_DIR/qtPlugins"
+          echo "bundled=true" >> "$GITHUB_OUTPUT"
 
       # The QtAliceVision plugins are added after cx_Freeze made the references of the bundle relative:
       # point them to the bundled AliceVision and Qt, then check that nothing is loaded from the build
       # machine (Homebrew is installed on this runner) and that AliceVision runs from the bundle.
       - name: Fix up and check AliceVision and QtAliceVision (macOS)
-        if: runner.os == 'macOS' && inputs.alicevision_url != '' && inputs.qtalicevision_url != ''
+        if: runner.os == 'macOS' && steps.bundle-av.outputs.bundled == 'true'
         shell: bash
         env:
           ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
