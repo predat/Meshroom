@@ -63,22 +63,40 @@ jobs:
           AV_WINDOWS_URL=$(nightlyAsset "$ALICEVISION_REPO" windows.zip)
           QTAV_LINUX_URL=$(nightlyAsset "$QTALICEVISION_REPO" linux.tar.gz)
           QTAV_WINDOWS_URL=$(nightlyAsset "$QTALICEVISION_REPO" windows.zip)
-          # Release notes row: | `<archive>` | <platform> | <Qt version> | `<AliceVision archive>` |
-          QTAV_LINUX_ROW=$(gh release view nightly --repo "$QTALICEVISION_REPO" --json body --jq '.body' \
-                           | grep -F "$(basename "$QTAV_LINUX_URL")")
-          PYSIDE6_VERSION=$(cut -d'|' -f4 <<< "$QTAV_LINUX_ROW" | tr -d ' \r')
-          QTAV_AV_ASSET=$(cut -d'|' -f5 <<< "$QTAV_LINUX_ROW" | tr -d ' `\r')
-          [ "$QTAV_AV_ASSET" = "$(basename "$AV_LINUX_URL")" ] \
-            || echo "::warning::QtAliceVision is built against ${QTAV_AV_ASSET}, not the bundled $(basename "$AV_LINUX_URL")"
+          # Optional: their macOS builds do not block their release, Meshroom is then built without AliceVision.
+          # AliceVision also publishes its dependencies as -macos-deps.tar.gz, not matched here.
+          AV_MACOS_URL=$(nightlyAsset "$ALICEVISION_REPO" macos.tar.gz)
+          QTAV_MACOS_URL=$(nightlyAsset "$QTALICEVISION_REPO" macos.tar.gz)
+          QTAV_NOTES=$(gh release view nightly --repo "$QTALICEVISION_REPO" --json body --jq '.body')
+          # Reads the row of a QtAliceVision archive in its release notes:
+          #   | `<archive>` | <platform> | <Qt version> | `<AliceVision archive>` |
+          # Sets QT_VERSION, and warns if it is not built against the bundled AliceVision archive.
+          checkQtAliceVision() {  # <QtAliceVision url> <AliceVision url>
+            local row av
+            QT_VERSION=""
+            [ -n "$1" ] || return 0
+            row=$(grep -F "$(basename "$1")" <<< "$QTAV_NOTES" || true)
+            QT_VERSION=$(cut -d'|' -f4 <<< "$row" | tr -d ' \r')
+            av=$(cut -d'|' -f5 <<< "$row" | tr -d ' `\r')
+            [ "$av" = "$(basename "$2")" ] \
+              || echo "::warning::$(basename "$1") is built against ${av:-an unknown archive}, not the bundled $(basename "$2")"
+          }
+          # PySide6 must have the Qt version of the plugins: the Linux one, checked on the other platforms
+          checkQtAliceVision "$QTAV_LINUX_URL" "$AV_LINUX_URL"
+          PYSIDE6_VERSION=$QT_VERSION
+          checkQtAliceVision "$QTAV_WINDOWS_URL" "$AV_WINDOWS_URL"
+          [ "$QT_VERSION" = "$PYSIDE6_VERSION" ] \
+            || echo "::warning::QtAliceVision is built with Qt ${QT_VERSION:-unknown} on Windows, not ${PYSIDE6_VERSION} (PySide6)"
+          if [ -n "$AV_MACOS_URL" ] && [ -n "$QTAV_MACOS_URL" ]; then
+            checkQtAliceVision "$QTAV_MACOS_URL" "$AV_MACOS_URL"
+            [ "$QT_VERSION" = "$PYSIDE6_VERSION" ] \
+              || echo "::warning::QtAliceVision is built with Qt ${QT_VERSION:-unknown} on macOS, not ${PYSIDE6_VERSION} (PySide6)"
+          fi
           for v in AV_LINUX_URL AV_WINDOWS_URL QTAV_LINUX_URL QTAV_WINDOWS_URL PYSIDE6_VERSION; do
             echo "$v=${!v}"
             test -n "${!v}"
             echo "${v,,}=${!v}" >> "$GITHUB_OUTPUT"
           done
-          # Optional: their macOS builds do not block their release, Meshroom is then built without AliceVision.
-          # AliceVision also publishes its dependencies as -macos-deps.tar.gz, not matched here.
-          AV_MACOS_URL=$(nightlyAsset "$ALICEVISION_REPO" macos.tar.gz)
-          QTAV_MACOS_URL=$(nightlyAsset "$QTALICEVISION_REPO" macos.tar.gz)
           for v in AV_MACOS_URL QTAV_MACOS_URL; do
             echo "$v=${!v}"
             echo "${v,,}=${!v}" >> "$GITHUB_OUTPUT"
