@@ -211,6 +211,7 @@ jobs:
 
     env:
       SHORT_SHA:   ${{ needs.check-changes.outputs.short_sha }}
+      FULL_SHA:    ${{ needs.check-changes.outputs.full_sha }}
       BUILD_LABEL: ${{ needs.check-changes.outputs.build_label }}
       GH_TOKEN:    ${{ github.token }}
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
@@ -278,7 +279,7 @@ jobs:
           | | |
           |---|---|
           | Date   | ${NOW} |
-          | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}) |
+          | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${FULL_SHA}) |
           | **Windows** | \`Meshroom-${BUILD_LABEL}-windows.zip\` |
           | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` (Rocky 9, glibc >= 2.34) |
           ${MACOS_ROW}
@@ -296,7 +297,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Force-update the nightly tag to current HEAD via the GitHub API.
+          # Force-update the nightly tag to the built develop commit via the GitHub API.
           # This avoids needing git remote auth or being inside a git directory.
-          gh api --method PATCH "/repos/${{ github.repository }}/git/refs/tags/nightly" -f sha="${{ github.sha }}" -F force=true || \
-          gh api --method POST "/repos/${{ github.repository }}/git/refs" -f ref="refs/tags/nightly" -f sha="${{ github.sha }}"
+          gh api --method PATCH "/repos/${{ github.repository }}/git/refs/tags/nightly" -f sha="${FULL_SHA}" -F force=true || \
+          gh api --method POST "/repos/${{ github.repository }}/git/refs" -f ref="refs/tags/nightly" -f sha="${FULL_SHA}"
