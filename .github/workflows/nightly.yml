@@ -239,27 +239,15 @@ jobs:
               --prerelease
           fi
 
-      # ── Replace assets ───────────────────────────────────────
-      # Delete every existing asset on the release, then upload the fresh ones.
-      # This keeps the release page clean: one asset per platform.
-      - name: Delete existing assets
-        run: |
-          gh release view nightly \
-            --repo "$GITHUB_REPOSITORY" \
-            --json assets \
-            --jq '.assets[].name' \
-          | while read -r ASSET; do
-              echo "  → Deleting asset: $ASSET"
-              gh release delete-asset nightly "$ASSET" \
-                --repo "$GITHUB_REPOSITORY" --yes
-            done
-
+      # ── Upload the new assets ────────────────────────────────
+      # The previous ones are only deleted once the release is up to date,
+      # so that a failure never leaves it without assets.
       - name: Upload new assets
         run: |
           find dist/ -type f -ls
           ASSETS=("dist/binary-windows/Meshroom-${BUILD_LABEL}-windows.zip" "dist/binary-linux/Meshroom-${BUILD_LABEL}-linux.tar.gz")
           [ ! -f "$MACOS_DMG" ] || ASSETS+=("$MACOS_DMG")
-          gh release upload nightly --repo "$GITHUB_REPOSITORY" "${ASSETS[@]}"
+          gh release upload nightly --repo "$GITHUB_REPOSITORY" --clobber "${ASSETS[@]}"
 
       # ── Update release body ──────────────────────────────────
       # Rewrite the release body with the latest build info.
@@ -301,3 +289,19 @@ jobs:
           # This avoids needing git remote auth or being inside a git directory.
           gh api --method PATCH "/repos/${{ github.repository }}/git/refs/tags/nightly" -f sha="${FULL_SHA}" -F force=true || \
           gh api --method POST "/repos/${{ github.repository }}/git/refs" -f ref="refs/tags/nightly" -f sha="${FULL_SHA}"
+
+      # ── Delete the previous assets ───────────────────────────
+      # One asset per platform. A failure only leaves extra assets, which the next run deletes.
+      - name: Delete previous assets
+        run: |
+          gh release view nightly \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name' \
+          | { grep -vF -- "-${BUILD_LABEL}-" || true; } \
+          | while read -r ASSET; do
+              echo "  → Deleting asset: $ASSET"
+              gh release delete-asset nightly "$ASSET" \
+                --repo "$GITHUB_REPOSITORY" --yes \
+              || echo "::warning::Could not delete $ASSET"
+            done
