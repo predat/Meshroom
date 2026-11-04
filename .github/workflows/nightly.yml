@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       macos_runner:
-        description: "macOS runner, e.g. macos-15-intel when the arm64 ones are saturated"
+        description: "macOS runner, e.g. macos-15-intel. Default: the runner of the AliceVision macOS nightly"
         type: string
-        default: macos-15
+        default: ""
 
 permissions:
   contents: write  # needed to edit releases, upload/delete assets and update "nightly" tag
@@ -40,6 +40,7 @@ jobs:
       av_macos_url:     ${{ steps.deps.outputs.av_macos_url }}
       qtav_macos_url:   ${{ steps.deps.outputs.qtav_macos_url }}
       pyside6_version:  ${{ steps.deps.outputs.pyside6_version }}
+      macos_runner:     ${{ inputs.macos_runner || steps.deps.outputs.macos_runner }}
 
     steps:
       - name: Checkout develop
@@ -92,7 +93,16 @@ jobs:
             [ "$QT_VERSION" = "$PYSIDE6_VERSION" ] \
               || echo "::warning::QtAliceVision is built with Qt ${QT_VERSION:-unknown} on macOS, not ${PYSIDE6_VERSION} (PySide6)"
           fi
-          for v in AV_LINUX_URL AV_WINDOWS_URL QTAV_LINUX_URL QTAV_WINDOWS_URL PYSIDE6_VERSION; do
+          # Build on the runner of the AliceVision macOS nightly (runs-on of its build-macos.yml at the archive's
+          # commit, as QtAliceVision does), so that its binaries match the runner architecture.
+          MACOS_RUNNER=macos-15
+          if [ -n "$AV_MACOS_URL" ]; then
+            AV_SHORT_SHA=$(basename "$AV_MACOS_URL" | sed -E 's/^AliceVision-nightly-[0-9]+-([0-9a-f]+)-macos\.tar\.gz$/\1/')
+            RUNNER=$(gh api "repos/${ALICEVISION_REPO}/contents/.github/workflows/build-macos.yml?ref=$(gh api "repos/${ALICEVISION_REPO}/commits/${AV_SHORT_SHA}" --jq '.sha')" \
+                     -H "Accept: application/vnd.github.raw" | sed -nE 's/^\s*runs-on:\s*(\S+)\s*$/\1/p' | head -n1) || true
+            [ -n "$RUNNER" ] && MACOS_RUNNER=$RUNNER || echo "::warning::Runner of $(basename "$AV_MACOS_URL") not found, using $MACOS_RUNNER"
+          fi
+          for v in AV_LINUX_URL AV_WINDOWS_URL QTAV_LINUX_URL QTAV_WINDOWS_URL PYSIDE6_VERSION MACOS_RUNNER; do
             echo "$v=${!v}"
             test -n "${!v}"
             echo "${v,,}=${!v}" >> "$GITHUB_OUTPUT"
@@ -173,8 +183,7 @@ jobs:
     if: needs.check-changes.outputs.should_build == 'true'
     uses: ./.github/workflows/build-binary.yml
     with:
-      # No inputs on scheduled runs
-      os: ${{ inputs.macos_runner || 'macos-15' }}
+      os: ${{ needs.check-changes.outputs.macos_runner }}
       build_label: ${{ needs.check-changes.outputs.build_label }}
       alicevision_url: ${{ needs.check-changes.outputs.av_macos_url }}
       qtalicevision_url: ${{ needs.check-changes.outputs.qtav_macos_url }}
@@ -207,7 +216,7 @@ jobs:
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
       QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
       MACOS_WITH_AV: ${{ needs.build-macos.outputs.alicevision_bundled }}
-      MACOS_RUNNER: ${{ inputs.macos_runner || 'macos-15' }}
+      MACOS_RUNNER: ${{ needs.check-changes.outputs.macos_runner }}
       MACOS_DMG:   dist/binary-macos/Meshroom-${{ needs.check-changes.outputs.build_label }}-macos.dmg
       PYSIDE6_VERSION: ${{ needs.check-changes.outputs.pyside6_version }}
 
