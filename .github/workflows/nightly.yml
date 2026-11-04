@@ -22,8 +22,8 @@ env:
 
 jobs:
   # ────────────────────────────────────────────────────────────
-  # Guard: skip everything if develop hasn't changed since the
-  # SHA recorded in the single persistent "nightly" release.
+  # Guard: skip everything if the upstream develop commit this branch
+  # is based on hasn't changed since the "nightly" tag.
   # ────────────────────────────────────────────────────────────
   check-changes:
     name: Check for new commits on develop
@@ -33,6 +33,7 @@ jobs:
       short_sha:    ${{ steps.check.outputs.short_sha }}
       full_sha:     ${{ steps.check.outputs.full_sha }}
       build_label:  ${{ steps.check.outputs.build_label }}
+      behind:       ${{ steps.check.outputs.behind }}
       av_linux_url:     ${{ steps.deps.outputs.av_linux_url }}
       av_windows_url:   ${{ steps.deps.outputs.av_windows_url }}
       qtav_linux_url:   ${{ steps.deps.outputs.qtav_linux_url }}
@@ -43,10 +44,11 @@ jobs:
       macos_runner:     ${{ inputs.macos_runner || steps.deps.outputs.macos_runner }}
 
     steps:
-      - name: Checkout develop
+      # The bundles are built from this branch, not from the develop branch of the fork
+      - name: Checkout the nightly branch
         uses: actions/checkout@v6
         with:
-          ref: develop
+          fetch-depth: 0  # required to find the upstream commit it is based on
           fetch-tags: true  # required to find the previous nightly tag
 
       # The QtAliceVision plugins only load in the Qt they were built with:
@@ -117,8 +119,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          FULL_SHA=$(git rev-parse HEAD)
+          git fetch --quiet https://github.com/alicevision/Meshroom.git develop
+          FULL_SHA=$(git merge-base HEAD FETCH_HEAD)
+          SHORT_SHA=$(git rev-parse --short "$FULL_SHA")
+          BEHIND=$(git rev-list --count HEAD..FETCH_HEAD)
+          [ "$BEHIND" = 0 ] || echo "::warning::${GITHUB_REF_NAME} is ${BEHIND} commits behind alicevision/Meshroom develop: rebase it"
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
           BUILD_LABEL="$(date -u '+%Y.%m.%d')-${SHORT_SHA}"
           echo "short_sha=$SHORT_SHA"   >> "$GITHUB_OUTPUT"
           echo "full_sha=$FULL_SHA"     >> "$GITHUB_OUTPUT"
@@ -213,6 +219,7 @@ jobs:
       SHORT_SHA:   ${{ needs.check-changes.outputs.short_sha }}
       FULL_SHA:    ${{ needs.check-changes.outputs.full_sha }}
       BUILD_LABEL: ${{ needs.check-changes.outputs.build_label }}
+      BEHIND:      ${{ needs.check-changes.outputs.behind }}
       GH_TOKEN:    ${{ github.token }}
       AV_ASSET:    ${{ needs.check-changes.outputs.av_linux_url }}
       QTAV_ASSET:  ${{ needs.check-changes.outputs.qtav_linux_url }}
@@ -259,6 +266,8 @@ jobs:
           [ "$MACOS_WITH_AV" = true ] || MACOS_NOTE="${MACOS_NOTE}. **Without AliceVision**: no AliceVision and QtAliceVision macOS nightlies for this architecture"
           MACOS_ROW="| **macOS** | \`$(basename "$MACOS_DMG")\` (${MACOS_NOTE}) |"
           [ -f "$MACOS_DMG" ] || MACOS_ROW="| **macOS** | Not built this time: no macOS runner available, or build failure |"
+          BEHIND_NOTE=""
+          [ "$BEHIND" = 0 ] || BEHIND_NOTE=" (${BEHIND} commits behind alicevision/Meshroom develop)"
  
           cat > nightly_release_notes.md << EOF
           > [!WARNING]
@@ -267,7 +276,7 @@ jobs:
           | | |
           |---|---|
           | Date   | ${NOW} |
-          | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${FULL_SHA}) |
+          | Commit | [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${FULL_SHA})${BEHIND_NOTE} |
           | **Windows** | \`Meshroom-${BUILD_LABEL}-windows.zip\` |
           | **Linux** | \`Meshroom-${BUILD_LABEL}-linux.tar.gz\` (Rocky 9, glibc >= 2.34) |
           ${MACOS_ROW}
