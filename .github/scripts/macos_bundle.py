@@ -62,8 +62,9 @@ def bundledName(name: str) -> str:
 def fixupQtPlugins(rootDir: Path):
     """
     Point the libraries of the QtAliceVision plugins to their copy in the bundle:
-    AliceVision and its dependencies through an rpath to aliceVision/lib, and Qt to the
-    binaries cx_Freeze copied (it flattens the frameworks), with @executable_path like it does.
+    AliceVision and its dependencies through an rpath to aliceVision/lib, the libraries installed
+    next to a plugin (Embree) through an rpath to its folder, and Qt to the binaries cx_Freeze
+    copied (it flattens the frameworks), with @executable_path like it does.
     """
     avLibDir = rootDir / "aliceVision" / "lib"
     qtBinaries = {p.name: p for p in (rootDir / "lib").rglob("Qt*") if isMachO(p)}
@@ -73,7 +74,7 @@ def fixupQtPlugins(rootDir: Path):
         for name in loads:
             if isSystem(name):
                 continue
-            if (avLibDir / bundledName(name)).exists():
+            if (avLibDir / bundledName(name)).exists() or (plugin.parent / bundledName(name)).exists():
                 newName = f"@rpath/{bundledName(name)}"
             elif Path(name).name in qtBinaries:
                 newName = f"@executable_path/{qtBinaries[Path(name).name].relative_to(rootDir)}"
@@ -81,9 +82,13 @@ def fixupQtPlugins(rootDir: Path):
                 continue  # Reported by the check
             if newName != name:
                 args += ["-change", name, newName]
-        for rpath in rpaths:
+        newRpaths = [f"@loader_path/{os.path.relpath(avLibDir, plugin.parent)}", "@loader_path"]
+        # Only change what differs: install_name_tool can't add an rpath a binary has (Embree has @loader_path)
+        for rpath in set(rpaths) - set(newRpaths):
             args += ["-delete_rpath", rpath]
-        args += ["-add_rpath", f"@loader_path/{os.path.relpath(avLibDir, plugin.parent)}"]
+        for rpath in newRpaths:
+            if rpath not in rpaths:
+                args += ["-add_rpath", rpath]
         print(f"{plugin.relative_to(rootDir)}: {' '.join(args)}")
         subprocess.run(["install_name_tool", *args, str(plugin)], check=True)
         # Modifying a binary invalidates its signature, mandatory on Apple Silicon
