@@ -49,6 +49,9 @@ jobs:
       artifact_name: ${{ steps.set-names.outputs.artifact_name }}
 
     env:
+      # Repositories of the bundled nightlies (see nightly.yml)
+      ALICEVISION_REPO: ${{ vars.ALICEVISION_REPO || 'alicevision/AliceVision' }}
+      QTALICEVISION_REPO: ${{ vars.QTALICEVISION_REPO || 'alicevision/QtAliceVision' }}
       ALICEVISION_BUNDLE: ${{ github.workspace }}/../AV_bundle
       QTALICEVISION_BUNDLE: ${{ github.workspace }}/../QTAV_bundle
       PYTHON_VENV: ${{ github.workspace }}/../pyenv
@@ -97,7 +100,7 @@ jobs:
           fi
           mkdir -p "$ALICEVISION_BUNDLE"
           echo "Downloading: $AV_ARCHIVE"
-          gh release download nightly --repo alicevision/AliceVision --pattern "$AV_ARCHIVE" --dir ..
+          gh release download nightly --repo "$ALICEVISION_REPO" --pattern "$AV_ARCHIVE" --dir ..
           if [ "$RUNNER_OS" = "Windows" ]; then
             7z x -bd -y "../$AV_ARCHIVE" -o"$ALICEVISION_BUNDLE" > /dev/null
           else
@@ -120,7 +123,7 @@ jobs:
           EXTRACT_DIR="${QTALICEVISION_BUNDLE}_extract"
           mkdir -p "$EXTRACT_DIR"
           echo "Downloading: $QTAV_ARCHIVE"
-          gh release download nightly --repo alicevision/QtAliceVision --pattern "$QTAV_ARCHIVE" --dir ..
+          gh release download nightly --repo "$QTALICEVISION_REPO" --pattern "$QTAV_ARCHIVE" --dir ..
           if [ "$RUNNER_OS" = "Windows" ]; then
             7z x -bd -y "../$QTAV_ARCHIVE" -o"$EXTRACT_DIR" > /dev/null
           else

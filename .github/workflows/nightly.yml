@@ -22,6 +22,12 @@ concurrency:
   group: nightly
   cancel-in-progress: false
 
+env:
+  # Repositories of the bundled nightlies: the ALICEVISION_REPO and QTALICEVISION_REPO repository variables
+  # allow a fork to bundle the nightlies of other forks (also read by the reusable workflows)
+  ALICEVISION_REPO: ${{ vars.ALICEVISION_REPO || 'alicevision/AliceVision' }}
+  QTALICEVISION_REPO: ${{ vars.QTALICEVISION_REPO || 'alicevision/QtAliceVision' }}
+
 jobs:
   # ────────────────────────────────────────────────────────────
   # Guard: decide whether to build (see .github/scripts/nightly-check.sh).

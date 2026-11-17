@@ -24,7 +24,8 @@
 # answer leads to should_build=false: a warning when it may be transient (retried next hour), an error
 # (failed run) when the state of the Meshroom nightly itself needs a manual fix.
 #
-# Environment: GH_TOKEN, EVENT_NAME, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_OUTPUT.
+# Environment: GH_TOKEN, EVENT_NAME, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_OUTPUT,
+#              ALICEVISION_REPO, QTALICEVISION_REPO (optional, "owner/name").
 # Requires: gh and jq (both preinstalled on the GitHub-hosted runners).
 #
 # Structure: main() runs the decision steps in order. Each step either returns (continue) or ends the
@@ -37,8 +38,9 @@ set -uo pipefail
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 
-AV_REPO="aliceVision/AliceVision"
-QTAV_REPO="aliceVision/QtAliceVision"
+# Repositories of the bundled nightlies, overridable to bundle the nightlies of forks
+AV_REPO="${ALICEVISION_REPO:-alicevision/AliceVision}"
+QTAV_REPO="${QTALICEVISION_REPO:-alicevision/QtAliceVision}"
 # Time of day (UTC) after which the daily develop build may happen
 DAILY_CUTOFF="05:00:00"
 LINUX_SUFFIX="-linux.tar.gz"
