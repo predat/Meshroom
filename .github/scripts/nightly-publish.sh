@@ -10,11 +10,13 @@
 #                       so that the previous nightly is left intact.
 #   3. deleteOldAssets: remove the previous archives.
 #   4. updateNotes:     rewrite the release notes (commit, archives, AliceVision / QtAliceVision nightlies).
-#   5. verifyRelease:   check the final state: exactly the four new archives, fully uploaded, with the local
+#   5. verifyRelease:   check the final state: exactly the new archives, fully uploaded, with the local
 #                       sizes, and notes listing them and the commit.
 #
 # The four archives, per platform (Linux, Windows): Meshroom only, and "full" (Meshroom with the AliceVision
 # and QtAliceVision nightlies).
+# The macOS disk images are optional (the macOS build does not block the nightly): published when present,
+# the full one only existing when AliceVision and QtAliceVision macOS nightlies were bundled.
 #
 # A failure after step 2 cannot be rolled back, but leaves a state that the hourly nightly check
 # (.github/scripts/nightly-check.sh) detects: duplicate archives (error, run the workflow manually), or notes
@@ -22,6 +24,7 @@
 #
 # Environment: GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, BUILD_LABEL, SHORT_SHA,
 #              AV_LINUX, AV_WINDOWS, QTAV_LINUX, QTAV_WINDOWS (may be empty: "unknown" in the notes),
+#              AV_MACOS, QTAV_MACOS, MACOS_RUNNER (optional, for the notes),
 #              DIST_DIR (folder of the downloaded build artifacts, default "dist").
 # Requires: gh, jq (preinstalled on the GitHub-hosted Ubuntu runners).
 set -euo pipefail
@@ -38,7 +41,10 @@ LINUX_NAME=""
 WINDOWS_NAME=""
 LINUX_FULL_NAME=""
 WINDOWS_FULL_NAME=""
-# Paths of the four local archives, and their names one per line
+# Names of the macOS disk images, empty when not built
+MACOS_NAME=""
+MACOS_FULL_NAME=""
+# Paths of the local archives (the four above, then the macOS disk images), and their names one per line
 NEW_FILES=()
 NEW_NAMES=""
 # Names of the assets of the release before publication, one per line
@@ -72,7 +78,7 @@ inList() {
 #                   OLD_ASSETS.
 # Exits: fail on any problem.
 preflight() {
-  local release rc linuxTop windowsTop file
+  local release rc linuxTop windowsTop macosTop file
   REPO="${GITHUB_REPOSITORY:-}"
   [ -n "$REPO" ] || fail "GITHUB_REPOSITORY is not set"
   [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid GITHUB_SHA '${GITHUB_SHA:-}'"
@@ -93,12 +99,23 @@ preflight() {
     "${DIST_DIR}/binary-linux/${LINUX_FULL_NAME}"
     "${DIST_DIR}/binary-windows/${WINDOWS_FULL_NAME}"
   )
-  NEW_NAMES=$(for file in "${NEW_FILES[@]}"; do basename "$file"; done)
 
   # Content and integrity verified by build-binary.yml ("Verify archives"), and by the artifact transfer
   for file in "${NEW_FILES[@]}"; do
     [ -s "$file" ] || fail "Archive missing or empty: $file"
   done
+
+  # Optional macOS disk images
+  macosTop="Meshroom-${BUILD_LABEL}-macos"
+  if [ -s "${DIST_DIR}/binary-macos/${macosTop}.dmg" ]; then
+    MACOS_NAME="${macosTop}.dmg"
+    NEW_FILES+=("${DIST_DIR}/binary-macos/${MACOS_NAME}")
+    if [ -s "${DIST_DIR}/binary-macos/${macosTop}-full.dmg" ]; then
+      MACOS_FULL_NAME="${macosTop}-full.dmg"
+      NEW_FILES+=("${DIST_DIR}/binary-macos/${MACOS_FULL_NAME}")
+    fi
+  fi
+  NEW_NAMES=$(for file in "${NEW_FILES[@]}"; do basename "$file"; done)
 
   release=$(fetchNightly "$REPO") && rc=0 || rc=$?
   if [ $rc -eq 2 ]; then
@@ -128,7 +145,7 @@ rollbackUpload() {
   done <<< "$NEW_NAMES"
 }
 
-# Upload the four new archives next to the previous ones. An asset with the same name (rebuild of the same
+# Upload the new archives next to the previous ones. An asset with the same name (rebuild of the same
 # commit the same day, e.g. for a new AliceVision nightly) is replaced (--clobber).
 # Exits: fail after rollbackUpload if the upload fails.
 uploadAssets() {
@@ -157,8 +174,23 @@ deleteOldAssets() {
 # archive names in `backticks`.
 # Exits: fail if the update fails (the nightly check then sees notes not matching the archives and rebuilds).
 updateNotes() {
-  local notesFile
+  local notesFile macosRow macosDeps=""
   notesFile=$(mktemp)
+  if [ -z "$MACOS_NAME" ]; then
+    macosRow="| **macOS** | not built this time (no macOS runner available, or build failure) | |"
+  elif [ -z "$MACOS_FULL_NAME" ]; then
+    macosRow="| **macOS** | \`${MACOS_NAME}\` | no AliceVision and QtAliceVision macOS nightlies for this architecture |"
+  else
+    macosRow="| **macOS** | \`${MACOS_NAME}\` | \`${MACOS_FULL_NAME}\` |"
+    macosDeps="
+
+The macOS full disk image bundles \`${AV_MACOS:-unknown}\` and \`${QTAV_MACOS:-unknown}\`."
+  fi
+  if [ -n "$MACOS_NAME" ]; then
+    macosDeps="
+
+The macOS application is built on \`${MACOS_RUNNER:-unknown}\` and is not signed: run \`xattr -dr com.apple.quarantine /Applications/Meshroom.app\` before the first launch.${macosDeps}"
+  fi
   cat > "$notesFile" << EOF
 > [!WARNING]
 > **Automated nightly build** from the \`develop\` branch. May be unstable.
@@ -172,6 +204,7 @@ updateNotes() {
 |---|---|---|
 | **Windows** | \`${WINDOWS_NAME}\` | \`${WINDOWS_FULL_NAME}\` |
 | **Linux** | \`${LINUX_NAME}\` | \`${LINUX_FULL_NAME}\` |
+${macosRow}
 
 The full archives are ready to use: they bundle the AliceVision and QtAliceVision nightlies below in the \`aliceVision/\`, \`qtPlugins/\` and \`python/\` folders of Meshroom.
 
@@ -182,13 +215,13 @@ The binaries embed the Python interpreter of the AliceVision nightly below. A ne
 | | Linux | Windows |
 |---|---|---|
 | AliceVision | \`${AV_LINUX:-unknown}\` | \`${AV_WINDOWS:-unknown}\` |
-| QtAliceVision | \`${QTAV_LINUX:-unknown}\` | \`${QTAV_WINDOWS:-unknown}\` |
+| QtAliceVision | \`${QTAV_LINUX:-unknown}\` | \`${QTAV_WINDOWS:-unknown}\` |${macosDeps}
 EOF
   gh release edit nightly --repo "$REPO" --notes-file "$notesFile" || fail "Cannot update the release notes"
   rm -f "$notesFile"
 }
 
-# Check the published state: exactly the four new archives, fully uploaded, with the sizes of the local
+# Check the published state: exactly the new archives, fully uploaded, with the sizes of the local
 # files, and notes listing the commit and all the archives.
 # Exits: fail on any mismatch.
 verifyRelease() {

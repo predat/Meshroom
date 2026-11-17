@@ -9,6 +9,10 @@
 # On Linux, PySide6 is the source build of build-pyside6-linux.yml, never the PyPI wheels (they crash on signal
 # emission with this interpreter).
 # Any error fails the job: the nightly release is then not updated (see the "release" job of nightly.yml).
+#
+# macOS differs: the application bundle (cx_Freeze bdist_mac) is shipped in disk images, frozen with the Python
+# of the runner. The AliceVision and QtAliceVision nightlies are optional there: the full disk image is only
+# made when both exist for the architecture of the runner. Its job does not block the nightly release.
 
 name: Build binary
 
@@ -20,15 +24,15 @@ on:
         type: string
         required: true
       os:
-        description: "Runner OS: 'ubuntu-22.04' or 'windows-latest'"
+        description: "Runner OS: 'ubuntu-22.04', 'windows-latest' or a macOS runner (e.g. 'macos-15')"
         type: string
         required: true
       av_archive:
-        description: "AliceVision nightly archive for this platform, providing the Python interpreter (as listed in the Meshroom nightly notes)"
+        description: "AliceVision nightly archive for this platform, providing the Python interpreter (as listed in the Meshroom nightly notes). May be empty on macOS"
         type: string
         required: true
       qtav_archive:
-        description: "QtAliceVision nightly archive for this platform, bundled in the full archive (as listed in the Meshroom nightly notes)"
+        description: "QtAliceVision nightly archive for this platform, bundled in the full archive (as listed in the Meshroom nightly notes). May be empty on macOS"
         type: string
         required: true
       pyside6_cache_key:
@@ -75,6 +79,15 @@ jobs:
             echo "full_archive=Meshroom-${{ inputs.build_label }}-windows-full.zip" >> "$GITHUB_OUTPUT"
             echo "artifact_name=binary-windows"                            >> "$GITHUB_OUTPUT"
             echo "exe_suffix=.exe"                                         >> "$GITHUB_OUTPUT"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            echo "platform=macos"            >> "$GITHUB_OUTPUT"
+            echo "output_dir=Meshroom-${{ inputs.build_label }}-macos"     >> "$GITHUB_OUTPUT"
+            # Contents/MacOS links lib/ and the other folders of Contents/Resources
+            echo "root_dir=Meshroom-${{ inputs.build_label }}-macos/Meshroom.app/Contents/MacOS" >> "$GITHUB_OUTPUT"
+            echo "archive=Meshroom-${{ inputs.build_label }}-macos.dmg"    >> "$GITHUB_OUTPUT"
+            echo "full_archive=Meshroom-${{ inputs.build_label }}-macos-full.dmg" >> "$GITHUB_OUTPUT"
+            echo "artifact_name=binary-macos"                              >> "$GITHUB_OUTPUT"
+            echo "exe_suffix="                                             >> "$GITHUB_OUTPUT"
           else
             echo "platform=linux"            >> "$GITHUB_OUTPUT"
             echo "output_dir=Meshroom-${{ inputs.build_label }}-linux"     >> "$GITHUB_OUTPUT"
@@ -89,6 +102,7 @@ jobs:
       # AliceVision nightly was republished meanwhile, the download fails and nothing is published: the next
       # hourly check rebuilds against the new one.
       - name: Fetch AliceVision nightly
+        if: runner.os != 'macOS' || (inputs.av_archive != '' && inputs.qtav_archive != '')
         env:
           GH_TOKEN: ${{ github.token }}
           AV_ARCHIVE: ${{ inputs.av_archive }}
@@ -111,6 +125,7 @@ jobs:
       # QtAliceVision plugins of the full archive, downloaded the same way as the AliceVision nightly. The archive
       # holds a single top-level folder (the QtAliceVision install), moved to QTALICEVISION_BUNDLE.
       - name: Fetch QtAliceVision nightly
+        if: runner.os != 'macOS' || (inputs.av_archive != '' && inputs.qtav_archive != '')
         env:
           GH_TOKEN: ${{ github.token }}
           QTAV_ARCHIVE: ${{ inputs.qtav_archive }}
@@ -146,6 +161,7 @@ jobs:
       # Venv on top of the interpreter shipped in the AliceVision nightly bundle, as in the AliceVision and
       # QtAliceVision CI: packages go to the venv only, the bundled interpreter stays untouched.
       - name: Setup Python
+        if: runner.os != 'macOS'
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -171,6 +187,23 @@ jobs:
           else
             echo "$VENV_BIN" >> "$GITHUB_PATH"
           fi
+
+      # macOS: Python of the runner (the AliceVision nightly is optional there), in the same venv
+      - name: Set up Python 3.11 (macOS)
+        if: runner.os == 'macOS'
+        id: macos-python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Setup Python (macOS)
+        if: runner.os == 'macOS'
+        env:
+          RUNNER_PYTHON: ${{ steps.macos-python.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_PYTHON" -m venv "$PYTHON_VENV"
+          echo "${PYTHON_VENV}/bin" >> "$GITHUB_PATH"
 
       # ── Build ────────────────────────────────────────────────
       - name: Install system dependencies (Linux only)
@@ -263,7 +296,13 @@ jobs:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
           set -euo pipefail
-          python setup.py install_exe -d "$OUTPUT_DIR"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            python setup.py bdist_mac
+            mkdir -p "$OUTPUT_DIR"
+            mv build/Meshroom.app "$OUTPUT_DIR/"
+          else
+            python setup.py install_exe -d "$OUTPUT_DIR"
+          fi
 
       - name: Remove unused PySide6 files (Windows)
         if: runner.os == 'Windows'
@@ -310,6 +349,21 @@ jobs:
             *Qt6StateMachine*.so* \
             *Qt6NetworkAuth*.so*
 
+      - name: Remove unused PySide6 files (macOS)
+        if: runner.os == 'macOS'
+        env:
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
+        run: |
+          set -euo pipefail
+          cd "${ROOT_DIR}/lib/PySide6"
+          rm -rf resources translations typesystems examples include
+          # cx_Freeze extracts the binaries of the Qt frameworks as lib/Qt<Module>*
+          for MODULE in WebEngine Designer Multimedia SpatialAudio DataVisualization Graphs Bluetooth Nfc \
+                        SerialPort SerialBus Sensors TextToSpeech VirtualKeyboard WebSockets WebChannel \
+                        RemoteObjects Scxml StateMachine NetworkAuth; do
+            rm -rf ../Qt${MODULE}*
+          done
+
       - name: Strip debug symbols from .so files (Linux)
         if: runner.os == 'Linux'
         env:
@@ -327,16 +381,18 @@ jobs:
       # The command line tools run with the standalone backend: they do not import PySide6.
       - name: Smoke test of the frozen binaries
         env:
-          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          # Folder of the executables: inside the application bundle on macOS
+          BIN_DIR: ${{ steps.set-names.outputs.root_dir || steps.set-names.outputs.output_dir }}
           EXE: ${{ steps.set-names.outputs.exe_suffix }}
         run: |
           set -euo pipefail
           for TOOL in Meshroom meshroom_compute meshroom_batch; do
             echo "── ${TOOL} -h"
-            "${OUTPUT_DIR}/${TOOL}${EXE}" -h > /dev/null
+            "${BIN_DIR}/${TOOL}${EXE}" -h > /dev/null
           done
 
       - name: Create archive
+        if: runner.os != 'macOS'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
           ARCHIVE:    ${{ steps.set-names.outputs.archive }}
@@ -355,6 +411,7 @@ jobs:
       #  - python/:      the Python interpreter of the AliceVision bundle (copied: the venv is based on it);
       #  - qtPlugins/:   the QtAliceVision install (imageformats/ and qml/).
       - name: Add AliceVision and QtAliceVision
+        if: runner.os != 'macOS'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
@@ -412,6 +469,7 @@ jobs:
       # The relocated Python interpreter must still start and, on Windows, load the AliceVision bindings with the
       # MSVC runtime copied next to it
       - name: Smoke test of the bundled Python
+        if: runner.os != 'macOS'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
         run: |
@@ -431,6 +489,7 @@ jobs:
           fi
 
       - name: Create full archive
+        if: runner.os != 'macOS'
         env:
           OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
           ARCHIVE:    ${{ steps.set-names.outputs.full_archive }}
@@ -445,6 +504,7 @@ jobs:
       # Integrity of the archives and expected content: a single top-level folder containing the GUI executable,
       # plus AliceVision and QtAliceVision for the full archive (and not for the Meshroom-only one)
       - name: Verify archives
+        if: runner.os != 'macOS'
         env:
           OUTPUT_DIR:   ${{ steps.set-names.outputs.output_dir }}
           ARCHIVE:      ${{ steps.set-names.outputs.archive }}
@@ -502,6 +562,84 @@ jobs:
             }
           done
 
+      # ── macOS disk images ────────────────────────────────────
+      # Disk image with the application and a link to /Applications to drag it to
+      - name: Create disk image (macOS)
+        if: runner.os == 'macOS'
+        env:
+          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ARCHIVE:    ${{ steps.set-names.outputs.archive }}
+        run: |
+          set -euo pipefail
+          ln -s /Applications "${OUTPUT_DIR}/Applications"
+          hdiutil create -volname Meshroom -srcfolder "$OUTPUT_DIR" -format UDZO -ov "$ARCHIVE"
+
+      # Same layout as on the other platforms, next to the executables of the application bundle, without the
+      # Python interpreter. Nothing is added (and no full disk image is made) when the nightlies are not built
+      # for the architecture of this runner: the application could not load them.
+      - name: Add AliceVision and QtAliceVision (macOS)
+        id: macos-bundle
+        if: runner.os == 'macOS' && inputs.av_archive != '' && inputs.qtav_archive != ''
+        env:
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          for BIN in "${ALICEVISION_BUNDLE}/bin/aliceVision_cameraInit" "${QTALICEVISION_BUNDLE}"/qml/AliceVision/*.dylib; do
+            ARCHS=$(lipo -archs "$BIN")
+            if [[ " $ARCHS " != *" $ARCH "* ]]; then
+              echo "::warning title=Build binary::$(basename "$BIN") is built for ${ARCHS}, not ${ARCH}: AliceVision is not bundled"
+              echo "bundled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          mkdir "${ROOT_DIR}/aliceVision"
+          for ENTRY in "$ALICEVISION_BUNDLE"/*; do
+            case "$(basename "$ENTRY")" in
+              python|include) ;;
+              *) cp -a "$ENTRY" "${ROOT_DIR}/aliceVision/" ;;
+            esac
+          done
+          cp -a "${QTALICEVISION_BUNDLE}" "${ROOT_DIR}/qtPlugins"
+          rm -rf "${ROOT_DIR}/qtPlugins/include" \
+            "${ROOT_DIR}"/aliceVision/lib*/{cmake,pkgconfig} \
+            "${ROOT_DIR}"/aliceVision/share/{pkgconfig,aliceVision/cmake}
+          find "${ROOT_DIR}/aliceVision" "${ROOT_DIR}/qtPlugins" -type f -name '*.a' -delete
+
+          for REQUIRED in aliceVision/bin aliceVision/share/aliceVision aliceVision/share/meshroom qtPlugins/qml/AliceVision/qmldir; do
+            if [ ! -e "${ROOT_DIR}/${REQUIRED}" ]; then
+              echo "::error title=Build binary::${REQUIRED} missing from the full bundle"
+              exit 1
+            fi
+          done
+          echo "bundled=true" >> "$GITHUB_OUTPUT"
+
+      # The QtAliceVision plugins are added after cx_Freeze made the references of the bundle relative:
+      # point them to the bundled AliceVision and Qt, then check that nothing is loaded from the build
+      # machine (Homebrew is installed on this runner) and that AliceVision runs from the bundle.
+      - name: Fix up and check AliceVision and QtAliceVision (macOS)
+        if: runner.os == 'macOS' && steps.macos-bundle.outputs.bundled == 'true'
+        env:
+          ROOT_DIR: ${{ steps.set-names.outputs.root_dir }}
+        run: |
+          set -euo pipefail
+          python .github/scripts/macos_bundle.py "$ROOT_DIR"
+          # No --help option: without arguments the binaries print their usage and exit 1.
+          # ALICEVISION_ROOT is set by Meshroom at runtime, the binaries abort without it.
+          USAGE=$(ALICEVISION_ROOT="${ROOT_DIR}/aliceVision" "${ROOT_DIR}/aliceVision/bin/aliceVision_cameraInit" 2>&1 || true)
+          grep -q maxCoresAvailable <<< "$USAGE" || { echo "$USAGE"; exit 1; }
+
+      - name: Create full disk image (macOS)
+        if: runner.os == 'macOS' && steps.macos-bundle.outputs.bundled == 'true'
+        env:
+          OUTPUT_DIR: ${{ steps.set-names.outputs.output_dir }}
+          ARCHIVE:    ${{ steps.set-names.outputs.full_archive }}
+        run: |
+          set -euo pipefail
+          hdiutil create -volname Meshroom -srcfolder "$OUTPUT_DIR" -format UDZO -ov "$ARCHIVE"
+
+      # The full archive may be missing on macOS: only the files found are uploaded
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:

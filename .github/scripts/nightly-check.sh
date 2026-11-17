@@ -3,6 +3,8 @@
 #   should_build=true|false
 #   av_linux, av_windows, qtav_linux, qtav_windows: the AliceVision and QtAliceVision nightly archives
 #   seen by this check (empty when unknown), recorded in the notes of the Meshroom nightly.
+#   av_macos, qtav_macos: their optional macOS archives (both empty unless both exist and match);
+#   macos_runner: the runner of the macOS build.
 #
 # Scheduled runs build when:
 #  - there is no previous nightly (the release is confirmed missing, or lacks one of its four archives:
@@ -48,6 +50,10 @@ WINDOWS_SUFFIX="-windows.zip"
 # Full archives: Meshroom with the AliceVision and QtAliceVision nightlies (do not end with the suffixes above)
 LINUX_FULL_SUFFIX="-linux-full.tar.gz"
 WINDOWS_FULL_SUFFIX="-windows-full.zip"
+# Optional macOS archives of AliceVision and QtAliceVision (AliceVision also publishes "-macos-deps.tar.gz")
+MACOS_SUFFIX="-macos.tar.gz"
+# Runner of the macOS build when the AliceVision macOS nightly does not tell which one it was built on
+DEFAULT_MACOS_RUNNER="macos-15"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Global state
@@ -59,6 +65,9 @@ AV_LINUX=""
 AV_WINDOWS=""
 QTAV_LINUX=""
 QTAV_WINDOWS=""
+AV_MACOS=""
+QTAV_MACOS=""
+MACOS_RUNNER="$DEFAULT_MACOS_RUNNER"
 
 # Set by readEvent: "true" for a manual run, "false" for a scheduled one
 MANUAL=""
@@ -85,7 +94,8 @@ REASON=""
 # Installed as the EXIT trap, so the outputs are written exactly once whatever the exit path
 # (normal end, skip, fail, or an unexpected error), and should_build stays "false" unless main()
 # explicitly set SHOULD_BUILD=true.
-# Globals read: SHOULD_BUILD, AV_LINUX, AV_WINDOWS, QTAV_LINUX, QTAV_WINDOWS, GITHUB_OUTPUT.
+# Globals read: SHOULD_BUILD, AV_LINUX, AV_WINDOWS, QTAV_LINUX, QTAV_WINDOWS, AV_MACOS, QTAV_MACOS,
+#               MACOS_RUNNER, GITHUB_OUTPUT.
 writeOutputs() {
   {
     echo "should_build=${SHOULD_BUILD}"
@@ -93,6 +103,9 @@ writeOutputs() {
     echo "av_windows=${AV_WINDOWS}"
     echo "qtav_linux=${QTAV_LINUX}"
     echo "qtav_windows=${QTAV_WINDOWS}"
+    echo "av_macos=${AV_MACOS}"
+    echo "qtav_macos=${QTAV_MACOS}"
+    echo "macos_runner=${MACOS_RUNNER}"
   } >> "${GITHUB_OUTPUT:-/dev/stdout}"
 }
 
@@ -257,6 +270,42 @@ readDependencies() {
   echo "QtAliceVision nightly: ${QTAV_LINUX:-?} ${QTAV_WINDOWS:-?}"
 }
 
+# Read the optional macOS archives of the AliceVision and QtAliceVision nightlies, and the runner the
+# AliceVision one was built on (runs-on of its build-macos.yml at the commit of the archive), so that the
+# macOS build runs on the same architecture. Never exits and never prevents a build: the macOS build does
+# not block the nightly, and is made without AliceVision unless both archives exist and the QtAliceVision
+# one is built against the AliceVision one, as listed in its notes.
+# Globals read: AV_REPO, QTAV_REPO, QTAV_NOTES.
+# Globals modified: AV_MACOS, QTAV_MACOS, MACOS_RUNNER.
+readMacosDependencies() {
+  local release avMacos="" qtavMacos="" shortSha sha runner
+  release=$(fetchNightly "$AV_REPO") && findAsset "$release" "$MACOS_SUFFIX" && avMacos="$ASSET_NAME"
+  release=$(fetchNightly "$QTAV_REPO") && findAsset "$release" "$MACOS_SUFFIX" && qtavMacos="$ASSET_NAME"
+  echo "macOS nightlies:       ${avMacos:-none} ${qtavMacos:-none}"
+  if [ -z "$avMacos" ] || [ -z "$qtavMacos" ]; then
+    echo "No AliceVision and QtAliceVision macOS nightlies: macOS is built without them."
+    return 0
+  fi
+  if ! notesList "$QTAV_NOTES" "$avMacos"; then
+    echo "::warning title=Nightly check::${qtavMacos} is not built against ${avMacos}: macOS is built without them."
+    return 0
+  fi
+  AV_MACOS="$avMacos"
+  QTAV_MACOS="$qtavMacos"
+
+  shortSha=$(sed -nE 's/^AliceVision-nightly-[0-9.]+-([0-9a-f]+)-macos\.tar\.gz$/\1/p' <<< "$AV_MACOS")
+  sha=$(gh api "repos/${AV_REPO}/commits/${shortSha:-unknown}" --jq '.sha' 2> /dev/null) || sha=""
+  runner=$(gh api "repos/${AV_REPO}/contents/.github/workflows/build-macos.yml?ref=${sha:-unknown}" \
+             -H "Accept: application/vnd.github.raw" 2> /dev/null \
+           | sed -nE 's/^\s*runs-on:\s*(\S+)\s*$/\1/p' | head -n1) || runner=""
+  if [[ "$runner" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    MACOS_RUNNER="$runner"
+  else
+    echo "::warning title=Nightly check::Runner of ${AV_MACOS} not found, using ${MACOS_RUNNER}."
+  fi
+  echo "macOS runner:          ${MACOS_RUNNER}"
+}
+
 # Turn the readDependencyNightly return code of a dependency into a warning, ending the script, unless
 # its release was read and its archives look valid.
 # Arguments: $1 - dependency name, for the message ("AliceVision", "QtAliceVision"),
@@ -407,6 +456,7 @@ main() {
   readEvent
   validateEnvironment
   readDependencies
+  readMacosDependencies
 
   if [ "$MANUAL" = true ]; then
     echo "Manual run: building."
