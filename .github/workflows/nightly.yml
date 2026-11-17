@@ -4,7 +4,7 @@ on:
   schedule:
     # Hourly check (the "check-changes" job takes a few seconds and skips the build when not needed):
     # rebuild when develop, the AliceVision nightly or the QtAliceVision nightly changed
-    - cron: '45 * * * *'
+    - cron: '50 * * * *'
   # Allow manual trigger from the Actions tab
   workflow_dispatch:
     inputs:
